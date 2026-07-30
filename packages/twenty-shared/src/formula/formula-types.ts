@@ -1,5 +1,6 @@
 export const FORMULA_EDITOR_DOCUMENT_VERSION = 1 as const;
 export const FORMULA_AST_VERSION = 1 as const;
+export const FORMULA_EVALUATOR_VERSION = '1.0.0' as const;
 
 export type FormulaSourceSpan = {
   start: number;
@@ -135,6 +136,7 @@ export type FormulaDiagnosticCode =
   | 'DOCUMENT_VERSION_UNSUPPORTED'
   | 'EMPTY_EXPRESSION'
   | 'EVALUATION_ERROR'
+  | 'EVALUATION_LIMIT_EXCEEDED'
   | 'EXPRESSION_TOO_DEEP'
   | 'EXPRESSION_TOO_LARGE'
   | 'FUNCTION_NOT_SUPPORTED'
@@ -218,12 +220,25 @@ export type ResolveFormulaValue = (
   reference: FormulaReferenceNode['reference'],
 ) => FormulaValue | undefined;
 
-export type FormulaEvaluationResult =
-  | {
-      status: 'success';
-      value: FormulaValue;
-    }
-  | {
-      status: 'error';
-      diagnostics: FormulaDiagnostic[];
-    };
+export type FormulaEvaluationLimits = {
+  maxDepth: number;
+  maxInstructions: number;
+  maxTextLength: number;
+};
+
+type FormulaEvaluationMetadata = {
+  evaluatorVersion: typeof FORMULA_EVALUATOR_VERSION;
+  instructionCount: number;
+};
+
+export type FormulaEvaluationResult = FormulaEvaluationMetadata &
+  (
+    | {
+        status: 'success';
+        value: FormulaValue;
+      }
+    | {
+        status: 'error';
+        diagnostics: FormulaDiagnostic[];
+      }
+  );

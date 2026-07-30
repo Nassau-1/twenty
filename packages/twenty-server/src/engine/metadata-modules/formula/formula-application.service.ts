@@ -234,6 +234,8 @@ export class FormulaApplicationService {
     recordId: string;
     outputFieldName: string;
     value: number | null;
+    evaluatorVersion: string;
+    instructionCount: number;
   }> {
     const definition = await this.getFormula({
       workspaceId,
@@ -358,6 +360,8 @@ export class FormulaApplicationService {
           recordId,
           outputFieldName: outputField.name,
           value,
+          evaluatorVersion: evaluation.evaluatorVersion,
+          instructionCount: evaluation.instructionCount,
         };
       },
       authContext,
