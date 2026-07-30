@@ -1,7 +1,6 @@
 import { isNonEmptyString } from '@sniptt/guards';
 import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
-// workspaceUrls come from the front URL built with `new URL(...).toString()`, which keeps a trailing slash
 const stripTrailingSlashes = (url: string): string => url.replace(/\/+$/, '');
 
 export const fetchWorkspaceBaseUrl = async (): Promise<string | undefined> => {
