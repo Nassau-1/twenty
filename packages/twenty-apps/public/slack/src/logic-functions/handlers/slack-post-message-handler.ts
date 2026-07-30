@@ -25,7 +25,6 @@ export const slackPostMessageHandler = async (
     const bodyFields = getSlackChatMessageBodyFields({
       messageText: parameters.messageText,
       messageFormat: parameters.messageFormat,
-      messageBlocks: parameters.messageBlocks,
     });
 
     const data = await client.chat.postMessage({

@@ -1,9 +1,11 @@
 import { isNonEmptyArray } from '@sniptt/guards';
 
+import { type SlackMessageBody } from 'src/logic-functions/types/slack-message-body.type';
 import { type SlackToolResult } from 'src/logic-functions/types/slack-tool-result.type';
 import { type SlackUpdateMessageInput } from 'src/logic-functions/types/slack-update-message-input.type';
 import { getSlackChatMessageBodyFields } from 'src/logic-functions/utils/get-slack-chat-message-body-fields';
 import { getSlackClient } from 'src/logic-functions/utils/get-slack-client';
+import { getSlackMessageBodyFallbacks } from 'src/logic-functions/utils/get-slack-message-body-fallbacks';
 import { isSlackMarkdownFormatError } from 'src/logic-functions/utils/is-slack-markdown-format-error';
 import { slackToolFailure } from 'src/logic-functions/utils/slack-tool-failure';
 
@@ -23,12 +25,11 @@ export const slackUpdateMessageHandler = async (
   const { client } = slackClientResult;
 
   const updateWithBody = async (
-    body: Pick<SlackUpdateMessageInput, 'messageFormat' | 'messageBlocks'>,
+    body: SlackMessageBody,
   ): Promise<SlackToolResult> => {
     const bodyFields = getSlackChatMessageBodyFields({
       messageText: parameters.newMessageText,
-      messageFormat: body.messageFormat,
-      messageBlocks: body.messageBlocks,
+      ...body,
     });
 
     const data = await client.chat.update({
@@ -45,21 +46,31 @@ export const slackUpdateMessageHandler = async (
     };
   };
 
-  const isRichBody =
-    isNonEmptyArray(parameters.messageBlocks) ||
-    parameters.messageFormat === 'markdown';
+  const updateWithFirstRenderableBody = async ([
+    body,
+    ...remainingBodies
+  ]: SlackMessageBody[]): Promise<SlackToolResult> => {
+    try {
+      return await updateWithBody(body);
+    } catch (error) {
+      if (
+        !isNonEmptyArray(remainingBodies) ||
+        !isSlackMarkdownFormatError(error)
+      ) {
+        return slackToolFailure('Failed to update Slack message', error);
+      }
 
-  try {
-    return await updateWithBody(parameters);
-  } catch (error) {
-    if (!isRichBody || !isSlackMarkdownFormatError(error)) {
-      return slackToolFailure('Failed to update Slack message', error);
+      return await updateWithFirstRenderableBody(remainingBodies);
     }
-  }
+  };
 
-  try {
-    return await updateWithBody({ messageFormat: 'plain' });
-  } catch (error) {
-    return slackToolFailure('Failed to update Slack message', error);
-  }
+  const messageBody: SlackMessageBody = {
+    messageFormat: parameters.messageFormat,
+    messageBlocks: parameters.messageBlocks,
+  };
+
+  return await updateWithFirstRenderableBody([
+    messageBody,
+    ...getSlackMessageBodyFallbacks(messageBody),
+  ]);
 };

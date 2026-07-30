@@ -1,7 +1,7 @@
 import { type KnownBlock } from '@slack/web-api';
 import { isNonEmptyArray } from '@sniptt/guards';
 
-import { type SlackMessageBodyFormat } from 'src/logic-functions/types/slack-message-body-format.type';
+import { type SlackMessageBody } from 'src/logic-functions/types/slack-message-body.type';
 
 type SlackChatMessageBodyFields =
   | {
@@ -27,11 +27,8 @@ export const getSlackChatMessageBodyFields = ({
   messageText,
   messageFormat,
   messageBlocks,
-}: {
-  messageText: string;
-  messageFormat?: SlackMessageBodyFormat;
-  messageBlocks?: KnownBlock[];
-}): SlackChatMessageBodyFields => {
+}: { messageText: string } & SlackMessageBody): SlackChatMessageBodyFields => {
+  // blocks render the message, so messageText is only Slack's notification and screen-reader fallback
   if (isNonEmptyArray(messageBlocks)) {
     return { blocks: messageBlocks, text: messageText };
   }

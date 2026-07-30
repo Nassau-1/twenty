@@ -19,7 +19,6 @@ import { slackPostMessageHandler } from 'src/logic-functions/handlers/slack-post
 import { slackUpdateMessageHandler } from 'src/logic-functions/handlers/slack-update-message-handler';
 import { type SlackAssistantRequestRecord } from 'src/logic-functions/types/slack-assistant-request-record.type';
 import { buildSlackAssistantAnswerBlocks } from 'src/logic-functions/utils/build-slack-assistant-answer-blocks';
-import { buildSlackAssistantAnswerText } from 'src/logic-functions/utils/build-slack-assistant-answer-text';
 import { buildSlackAssistantPrompt } from 'src/logic-functions/utils/build-slack-assistant-prompt';
 import { clearSlackAssistantThinkingReaction } from 'src/logic-functions/utils/clear-slack-assistant-thinking-reaction';
 import { extractAgentResponseText } from 'src/logic-functions/utils/extract-agent-response-text';
@@ -162,11 +161,7 @@ export const slackAssistantWorkerHandler = async (
     const updateResult = await slackUpdateMessageHandler({
       slackChannelId,
       messageTimestamp: placeholderTimestamp,
-      newMessageText: buildSlackAssistantAnswerText({
-        responseText,
-        durationMilliseconds,
-      }),
-      messageFormat: 'markdown',
+      newMessageText: responseText,
       messageBlocks: buildSlackAssistantAnswerBlocks({
         responseText,
         durationMilliseconds,

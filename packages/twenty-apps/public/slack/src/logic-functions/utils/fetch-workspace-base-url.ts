@@ -1,6 +1,7 @@
 import { isNonEmptyString } from '@sniptt/guards';
 import { MetadataApiClient } from 'twenty-client-sdk/metadata';
 
+// workspaceUrls come from the front URL built with `new URL(...).toString()`, which keeps a trailing slash
 const stripTrailingSlashes = (url: string): string => url.replace(/\/+$/, '');
 
 export const fetchWorkspaceBaseUrl = async (): Promise<string | undefined> => {
@@ -18,10 +19,18 @@ export const fetchWorkspaceBaseUrl = async (): Promise<string | undefined> => {
       return stripTrailingSlashes(customUrl);
     }
 
-    return isNonEmptyString(subdomainUrl)
-      ? stripTrailingSlashes(subdomainUrl)
-      : undefined;
-  } catch {
+    if (isNonEmptyString(subdomainUrl)) {
+      return stripTrailingSlashes(subdomainUrl);
+    }
+
+    console.warn('[slack] workspace URL is missing, record links are disabled');
+
+    return undefined;
+  } catch (error) {
+    console.warn(
+      `[slack] failed to read the workspace URL, record links are disabled: ${error instanceof Error ? error.message : String(error)}`,
+    );
+
     return undefined;
   }
 };
