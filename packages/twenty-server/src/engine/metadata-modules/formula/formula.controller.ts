@@ -36,6 +36,20 @@ export class FormulaController {
     private readonly formulaApplicationService: FormulaApplicationService,
   ) {}
 
+  @Post('plan')
+  planFormula(
+    @Body() input: CreateFormulaInput,
+    @AuthWorkspace() { id: workspaceId }: WorkspaceEntity,
+  ) {
+    return this.formulaApplicationService.planFormula({
+      workspaceId,
+      objectMetadataId: input.objectMetadataId,
+      outputFieldMetadataId: input.outputFieldMetadataId,
+      document: input.document,
+      reason: input.reason ?? null,
+    });
+  }
+
   @Post()
   createFormula(
     @Body() input: CreateFormulaInput,

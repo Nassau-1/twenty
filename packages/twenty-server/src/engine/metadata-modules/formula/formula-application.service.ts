@@ -18,6 +18,10 @@ import { type QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialE
 
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import {
+  type FormulaDependencyPlan,
+  FormulaDependencyPlannerService,
+} from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
@@ -42,6 +46,7 @@ export class FormulaApplicationService {
     private readonly fieldMetadataRepository: Repository<FieldMetadataEntity>,
     @InjectRepository(ObjectMetadataEntity)
     private readonly objectMetadataRepository: Repository<ObjectMetadataEntity>,
+    private readonly formulaDependencyPlannerService: FormulaDependencyPlannerService,
     private readonly formulaMetadataService: FormulaMetadataService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
   ) {}
@@ -53,6 +58,40 @@ export class FormulaApplicationService {
     document,
     reason,
   }: CreateFormulaArgs): Promise<FormulaDefinitionEntity> {
+    const { compiledFormula } = await this.prepareFormula({
+      workspaceId,
+      objectMetadataId,
+      outputFieldMetadataId,
+      document,
+      reason,
+    });
+
+    return this.formulaMetadataService.createDefinitionWithActiveVersion({
+      workspaceId,
+      objectMetadataId,
+      outputFieldMetadataId,
+      editorDocument: document,
+      compiledFormula,
+      createdByWorkspaceMemberId: null,
+      reason,
+    });
+  }
+
+  async planFormula(input: CreateFormulaArgs): Promise<FormulaDependencyPlan> {
+    const { dependencyPlan } = await this.prepareFormula(input);
+
+    return dependencyPlan;
+  }
+
+  private async prepareFormula({
+    workspaceId,
+    objectMetadataId,
+    outputFieldMetadataId,
+    document,
+  }: CreateFormulaArgs): Promise<{
+    compiledFormula: CompiledFormula;
+    dependencyPlan: FormulaDependencyPlan;
+  }> {
     const [objectMetadata, fields] = await Promise.all([
       this.objectMetadataRepository.findOne({
         where: { id: objectMetadataId, workspaceId },
@@ -147,15 +186,19 @@ export class FormulaApplicationService {
       );
     }
 
-    return this.formulaMetadataService.createDefinitionWithActiveVersion({
-      workspaceId,
-      objectMetadataId,
-      outputFieldMetadataId,
-      editorDocument: document,
+    const dependencyPlan =
+      await this.formulaDependencyPlannerService.planProspectiveVersion({
+        workspaceId,
+        objectMetadataId,
+        objectMetadataUniversalIdentifier: objectMetadata.universalIdentifier,
+        outputFieldMetadataId,
+        dependencies: compileResult.compiledFormula.dependencies,
+      });
+
+    return {
       compiledFormula: compileResult.compiledFormula,
-      createdByWorkspaceMemberId: null,
-      reason,
-    });
+      dependencyPlan,
+    };
   }
 
   async getFormula({
