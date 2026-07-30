@@ -13,6 +13,7 @@ export const formatFieldMetadataItemInput = (
       | 'options'
       | 'settings'
       | 'isLabelSyncedWithName'
+      | 'isUIEditable'
       | 'isUnique'
     >
   >,
@@ -26,6 +27,9 @@ export const formatFieldMetadataItemInput = (
     options: input.options,
     settings: input.settings,
     isLabelSyncedWithName: input.isLabelSyncedWithName,
+    ...(input.isUIEditable !== undefined && {
+      isUIEditable: input.isUIEditable,
+    }),
     isUnique: input.isUnique,
   };
 };

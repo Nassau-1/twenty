@@ -29,7 +29,7 @@ export const useFieldMetadataItem = () => {
       objectMetadataId: string;
       relationCreationPayload?: RelationCreationPayload;
       morphRelationsCreationPayload?: RelationCreationPayload[];
-    },
+    } & Partial<Pick<Field, 'isUIEditable'>>,
   ) => {
     const formattedInput = formatFieldMetadataItemInput(input);
 
@@ -40,6 +40,9 @@ export const useFieldMetadataItem = () => {
       label: formattedInput.label ?? '',
       name: formattedInput.name ?? '',
       isLabelSyncedWithName: formattedInput.isLabelSyncedWithName ?? true,
+      ...(formattedInput.isUIEditable !== undefined && {
+        isUIEditable: formattedInput.isUIEditable,
+      }),
       relationCreationPayload: input.relationCreationPayload,
       morphRelationsCreationPayload: input.morphRelationsCreationPayload,
     });

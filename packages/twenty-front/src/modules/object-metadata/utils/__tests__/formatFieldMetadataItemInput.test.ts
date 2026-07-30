@@ -72,6 +72,17 @@ describe('formatFieldMetadataItemInput', () => {
     expect(result).toEqual(expected);
   });
 
+  it('preserves a read-only field request', () => {
+    expect(
+      formatFieldMetadataItemInput({
+        label: 'Formula result',
+        name: 'formulaResult',
+        type: FieldMetadataType.NUMBER,
+        isUIEditable: false,
+      }),
+    ).toMatchObject({ isUIEditable: false });
+  });
+
   it('should format the field metadata item multi select input correctly', () => {
     const options: FieldMetadataItemOption[] = [
       {
