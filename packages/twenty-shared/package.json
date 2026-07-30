@@ -87,6 +87,11 @@
       "import": "./dist/database-events.mjs",
       "require": "./dist/database-events.cjs"
     },
+    "./formula": {
+      "types": "./dist/formula/index.d.ts",
+      "import": "./dist/formula.mjs",
+      "require": "./dist/formula.cjs"
+    },
     "./i18n": {
       "types": "./dist/i18n/index.d.ts",
       "import": "./dist/i18n.mjs",
@@ -149,6 +154,7 @@
     "application",
     "constants",
     "database-events",
+    "formula",
     "i18n",
     "logic-function",
     "metadata",
@@ -174,6 +180,9 @@
       ],
       "database-events": [
         "dist/database-events/index.d.ts"
+      ],
+      "formula": [
+        "dist/formula/index.d.ts"
       ],
       "i18n": [
         "dist/i18n/index.d.ts"
