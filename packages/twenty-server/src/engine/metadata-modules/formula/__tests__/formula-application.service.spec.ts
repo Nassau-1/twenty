@@ -10,6 +10,7 @@ import { type Repository } from 'typeorm';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
+import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
@@ -31,6 +32,7 @@ const objectMetadata = {
   id: 'object-id',
   workspaceId: 'workspace-id',
   nameSingular: 'company',
+  universalIdentifier: 'object-uid',
 } as ObjectMetadataEntity;
 const revenueField = {
   id: 'revenue-id',
@@ -64,6 +66,9 @@ describe('FormulaApplicationService', () => {
     createDefinitionWithActiveVersion: jest.fn(),
     findById: jest.fn(),
   };
+  const formulaDependencyPlannerService = {
+    planProspectiveVersion: jest.fn(),
+  };
   const recordRepository = {
     findOne: jest.fn(),
     update: jest.fn(),
@@ -75,6 +80,7 @@ describe('FormulaApplicationService', () => {
   const service = new FormulaApplicationService(
     fieldMetadataRepository as unknown as Repository<FieldMetadataEntity>,
     objectMetadataRepository as unknown as Repository<ObjectMetadataEntity>,
+    formulaDependencyPlannerService as unknown as FormulaDependencyPlannerService,
     formulaMetadataService as unknown as FormulaMetadataService,
     globalWorkspaceOrmManager as unknown as GlobalWorkspaceOrmManager,
   );
@@ -83,6 +89,16 @@ describe('FormulaApplicationService', () => {
     jest.clearAllMocks();
     objectMetadataRepository.findOne.mockResolvedValue(objectMetadata);
     fieldMetadataRepository.find.mockResolvedValue([revenueField, outputField]);
+    formulaDependencyPlannerService.planProspectiveVersion.mockResolvedValue({
+      candidateOutputFieldMetadataId: 'output-id',
+      candidateDepth: 1,
+      directDependencyFieldMetadataIds: ['revenue-id'],
+      directUpstreamFormulaDefinitionIds: [],
+      lineageKey: 'lineage-key',
+      maxFormulaDepth: 1,
+      topologicalOutputFieldMetadataIds: ['output-id'],
+      summary: 'Formula depth 1; 0 direct upstream Formulas.',
+    });
   });
 
   it('compiles and persists a numeric Formula against a read-only output', async () => {
@@ -110,6 +126,38 @@ describe('FormulaApplicationService', () => {
         }),
       }),
     );
+    expect(
+      formulaDependencyPlannerService.planProspectiveVersion,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      objectMetadataUniversalIdentifier: 'object-uid',
+      outputFieldMetadataId: 'output-id',
+      dependencies: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'revenue-field',
+        },
+      ],
+    });
+  });
+
+  it('returns a prospective plan without persisting the Formula', async () => {
+    await expect(
+      service.planFormula({
+        workspaceId: 'workspace-id',
+        objectMetadataId: 'object-id',
+        outputFieldMetadataId: 'output-id',
+        document,
+        reason: null,
+      }),
+    ).resolves.toMatchObject({
+      candidateDepth: 1,
+      lineageKey: 'lineage-key',
+    });
+    expect(
+      formulaMetadataService.createDefinitionWithActiveVersion,
+    ).not.toHaveBeenCalled();
   });
 
   it('rejects a writable output field', async () => {

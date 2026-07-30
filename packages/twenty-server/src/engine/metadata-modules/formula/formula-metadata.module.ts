@@ -7,6 +7,7 @@ import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/ent
 import { FormulaVersionEntity } from 'src/engine/metadata-modules/formula/entities/formula-version.entity';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
 import { FormulaController } from 'src/engine/metadata-modules/formula/formula.controller';
+import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
@@ -28,9 +29,10 @@ import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/
   controllers: [FormulaController],
   providers: [
     FormulaApplicationService,
+    FormulaDependencyPlannerService,
     FormulaMetadataService,
     provideWorkspaceScopedRepository(FormulaDefinitionEntity),
   ],
-  exports: [FormulaMetadataService],
+  exports: [FormulaDependencyPlannerService, FormulaMetadataService],
 })
 export class FormulaMetadataModule {}
