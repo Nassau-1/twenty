@@ -9,6 +9,8 @@ import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/f
 import { FormulaController } from 'src/engine/metadata-modules/formula/formula.controller';
 import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
+import { FormulaReactiveService } from 'src/engine/metadata-modules/formula/formula-reactive.service';
+import { FormulaRecomputeJob } from 'src/engine/metadata-modules/formula/jobs/formula-recompute.job';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/provide-workspace-scoped-repository';
@@ -31,8 +33,14 @@ import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/
     FormulaApplicationService,
     FormulaDependencyPlannerService,
     FormulaMetadataService,
+    FormulaReactiveService,
+    FormulaRecomputeJob,
     provideWorkspaceScopedRepository(FormulaDefinitionEntity),
   ],
-  exports: [FormulaDependencyPlannerService, FormulaMetadataService],
+  exports: [
+    FormulaDependencyPlannerService,
+    FormulaMetadataService,
+    FormulaReactiveService,
+  ],
 })
 export class FormulaMetadataModule {}
