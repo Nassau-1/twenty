@@ -34,7 +34,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     WorkspaceQueryHookModule,
     WorkspaceQueryRunnerModule,
     PermissionsModule,
-    TypeOrmModule.forFeature([RoleTargetEntity]),
+    TypeOrmModule.forFeature([RoleTargetEntity, FormulaDefinitionEntity]),
     UserRoleModule,
     ApiKeyModule,
     FileModule,
