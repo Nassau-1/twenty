@@ -27,7 +27,7 @@ import { PermissionsRestApiExceptionFilter } from 'src/engine/metadata-modules/p
 @UseGuards(
   JwtAuthGuard,
   WorkspaceAuthGuard,
-  SettingsPermissionGuard(PermissionFlagType.DATA_MODEL),
+  SettingsPermissionGuard(PermissionFlagType.FORMULAS),
 )
 @UseFilters(PermissionsRestApiExceptionFilter, RestApiExceptionFilter)
 @UsePipes(new ValidationPipe({ transform: true }))

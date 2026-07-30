@@ -7,12 +7,14 @@ import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { getWorkspaceScopedRepositoryToken } from 'src/engine/twenty-orm/workspace-scoped-repository/get-workspace-scoped-repository-token.util';
+import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 
 describe('FormulaMetadataService', () => {
   const fieldRepository = {
     findOne: jest.fn(),
   };
   const definitionRepository = {
+    count: jest.fn(),
     findOne: jest.fn(),
     save: jest.fn(),
     withManager: jest.fn(),
@@ -26,6 +28,9 @@ describe('FormulaMetadataService', () => {
   } as unknown as EntityManager;
   const dataSource = {
     transaction: jest.fn((callback) => callback(entityManager)),
+  };
+  const workspaceCacheService = {
+    invalidateAndRecompute: jest.fn(),
   };
   let service: FormulaMetadataService;
 
@@ -44,6 +49,7 @@ describe('FormulaMetadataService', () => {
           provide: getWorkspaceScopedRepositoryToken(FormulaDefinitionEntity),
           useValue: definitionRepository,
         },
+        { provide: WorkspaceCacheService, useValue: workspaceCacheService },
       ],
     }).compile();
     service = module.get(FormulaMetadataService);
@@ -98,6 +104,10 @@ describe('FormulaMetadataService', () => {
       }),
     );
     expect(result.activeVersionId).toBe('version');
+    expect(workspaceCacheService.invalidateAndRecompute).toHaveBeenCalledWith(
+      'workspace',
+      ['rolesPermissions'],
+    );
   });
 
   it('rejects an output field outside the requested workspace or object', async () => {

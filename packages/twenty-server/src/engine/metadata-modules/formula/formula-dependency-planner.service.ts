@@ -2,15 +2,16 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
 import { createHash } from 'node:crypto';
-import { type FormulaReferenceNode } from 'twenty-shared/formula';
+import {
+  FORMULA_SECURITY_LIMITS,
+  type FormulaReferenceNode,
+} from 'twenty-shared/formula';
 import { Repository } from 'typeorm';
 
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
 import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
-
-const MAX_FORMULA_CHAIN_DEPTH = 3;
 
 type FormulaDependency = FormulaReferenceNode['reference'];
 
@@ -226,9 +227,9 @@ export class FormulaDependencyPlannerService {
     const candidateDepth = depthByNodeId.get(outputFieldMetadataId) ?? 1;
     const maxFormulaDepth = Math.max(...depthByNodeId.values());
 
-    if (maxFormulaDepth > MAX_FORMULA_CHAIN_DEPTH) {
+    if (maxFormulaDepth > FORMULA_SECURITY_LIMITS.maxFormulaChainDepth) {
       throw new BadRequestException({
-        message: `Formula chains cannot exceed ${MAX_FORMULA_CHAIN_DEPTH} levels.`,
+        message: `Formula chains cannot exceed ${FORMULA_SECURITY_LIMITS.maxFormulaChainDepth} levels.`,
         candidateDepth,
         maxFormulaDepth,
       });

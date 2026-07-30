@@ -12,6 +12,7 @@ import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/ent
 import { FormulaVersionEntity } from 'src/engine/metadata-modules/formula/entities/formula-version.entity';
 import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
 import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
+import { WorkspaceCacheService } from 'src/engine/workspace-cache/services/workspace-cache.service';
 
 export type CreateFormulaDefinitionInput = {
   workspaceId: string;
@@ -31,6 +32,7 @@ export class FormulaMetadataService {
     private readonly fieldMetadataRepository: Repository<FieldMetadataEntity>,
     @InjectWorkspaceScopedRepository(FormulaDefinitionEntity)
     private readonly formulaDefinitionRepository: WorkspaceScopedRepository<FormulaDefinitionEntity>,
+    private readonly workspaceCacheService: WorkspaceCacheService,
   ) {}
 
   async createDefinitionWithActiveVersion(
@@ -50,36 +52,59 @@ export class FormulaMetadataService {
       );
     }
 
-    return this.dataSource.transaction(async (entityManager) => {
-      const definitionRepository =
-        this.formulaDefinitionRepository.withManager(entityManager);
-      const versionRepository =
-        entityManager.getRepository(FormulaVersionEntity);
+    const definition = await this.dataSource.transaction(
+      async (entityManager) => {
+        const definitionRepository =
+          this.formulaDefinitionRepository.withManager(entityManager);
+        const versionRepository =
+          entityManager.getRepository(FormulaVersionEntity);
 
-      const definition = await definitionRepository.save<
-        DeepPartial<FormulaDefinitionEntity>
-      >(input.workspaceId, {
-        objectMetadataId: input.objectMetadataId,
-        outputFieldMetadataId: input.outputFieldMetadataId,
-        activeVersionId: null,
-      });
-      const version = await versionRepository.save(
-        versionRepository.create({
-          definitionId: definition.id,
-          editorDocument: input.editorDocument,
-          ast: input.compiledFormula.ast,
-          dependencies: input.compiledFormula.dependencies,
-          outputType: input.compiledFormula.output.type,
-          isNullable: input.compiledFormula.output.nullable,
-          compilerVersion: String(input.compiledFormula.ast.version),
-          createdByWorkspaceMemberId: input.createdByWorkspaceMemberId,
-          reason: input.reason,
-        }),
-      );
+        const pendingDefinition = await definitionRepository.save<
+          DeepPartial<FormulaDefinitionEntity>
+        >(input.workspaceId, {
+          objectMetadataId: input.objectMetadataId,
+          outputFieldMetadataId: input.outputFieldMetadataId,
+          activeVersionId: null,
+        });
+        const version = await versionRepository.save(
+          versionRepository.create({
+            definitionId: pendingDefinition.id,
+            editorDocument: input.editorDocument,
+            ast: input.compiledFormula.ast,
+            dependencies: input.compiledFormula.dependencies,
+            outputType: input.compiledFormula.output.type,
+            isNullable: input.compiledFormula.output.nullable,
+            compilerVersion: String(input.compiledFormula.ast.version),
+            createdByWorkspaceMemberId: input.createdByWorkspaceMemberId,
+            reason: input.reason,
+          }),
+        );
 
-      definition.activeVersionId = version.id;
-      return definitionRepository.save(input.workspaceId, definition);
-    });
+        pendingDefinition.activeVersionId = version.id;
+        return definitionRepository.save(input.workspaceId, pendingDefinition);
+      },
+    );
+
+    await this.workspaceCacheService.invalidateAndRecompute(input.workspaceId, [
+      'rolesPermissions',
+    ]);
+
+    return definition;
+  }
+
+  countDefinitions({
+    workspaceId,
+    objectMetadataId,
+  }: {
+    workspaceId: string;
+    objectMetadataId?: string;
+  }): Promise<number> {
+    return this.formulaDefinitionRepository.count(
+      workspaceId,
+      objectMetadataId === undefined
+        ? undefined
+        : { where: { objectMetadataId } },
+    );
   }
 
   findByOutputField({

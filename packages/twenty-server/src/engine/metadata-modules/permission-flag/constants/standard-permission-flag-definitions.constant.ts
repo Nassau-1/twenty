@@ -49,6 +49,11 @@ const STANDARD_PERMISSION_FLAG_METADATA: Record<
     description: 'Edit data structure and fields',
     icon: 'IconHierarchy',
   },
+  [PermissionFlagType.FORMULAS]: {
+    label: 'Formulas',
+    description: 'Create and manage Formula fields',
+    icon: 'IconMathFunction',
+  },
   [PermissionFlagType.SECURITY]: {
     label: 'Security',
     description: 'Manage security policies',
