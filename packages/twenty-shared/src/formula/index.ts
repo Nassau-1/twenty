@@ -8,7 +8,10 @@
  */
 
 export { compileFormulaEditorDocument } from './compile-formula-editor-document';
-export { evaluateCompiledFormula } from './evaluate-compiled-formula';
+export {
+  DEFAULT_FORMULA_EVALUATION_LIMITS,
+  evaluateCompiledFormula,
+} from './evaluate-compiled-formula';
 export type {
   FormulaSourceSpan,
   FormulaObjectOwner,
@@ -41,10 +44,12 @@ export type {
   FormulaCompileResult,
   FormulaValue,
   ResolveFormulaValue,
+  FormulaEvaluationLimits,
   FormulaEvaluationResult,
 } from './formula-types';
 export {
   FORMULA_EDITOR_DOCUMENT_VERSION,
   FORMULA_AST_VERSION,
+  FORMULA_EVALUATOR_VERSION,
 } from './formula-types';
 export { parseFormulaEditorDocument } from './parse-formula-editor-document';

@@ -229,6 +229,8 @@ describe('FormulaApplicationService', () => {
       recordId: 'record-id',
       outputFieldName: 'formulaResult',
       value: 250,
+      evaluatorVersion: '1.0.0',
+      instructionCount: 3,
     });
     expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
       formulaResult: 250,
