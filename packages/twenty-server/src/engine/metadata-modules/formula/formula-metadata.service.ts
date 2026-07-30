@@ -94,4 +94,17 @@ export class FormulaMetadataService {
       relations: { versions: true },
     });
   }
+
+  findById({
+    workspaceId,
+    formulaDefinitionId,
+  }: {
+    workspaceId: string;
+    formulaDefinitionId: string;
+  }): Promise<FormulaDefinitionEntity | null> {
+    return this.formulaDefinitionRepository.findOne(workspaceId, {
+      where: { id: formulaDefinitionId },
+      relations: { versions: true },
+    });
+  }
 }

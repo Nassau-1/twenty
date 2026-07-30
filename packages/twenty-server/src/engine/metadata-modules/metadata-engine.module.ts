@@ -13,6 +13,7 @@ import { CalendarChannelMetadataModule } from 'src/engine/metadata-modules/calen
 import { ConnectedAccountMetadataModule } from 'src/engine/metadata-modules/connected-account/connected-account-metadata.module';
 import { CommandMenuItemModule } from 'src/engine/metadata-modules/command-menu-item/command-menu-item.module';
 import { FieldMetadataModule } from 'src/engine/metadata-modules/field-metadata/field-metadata.module';
+import { FormulaMetadataModule } from 'src/engine/metadata-modules/formula/formula-metadata.module';
 import { FlatEntityMapsGraphqlApiExceptionFilter } from 'src/engine/metadata-modules/flat-entity/filters/flat-entity-maps-graphql-api-exception.filter';
 import { PermissionsGraphqlApiExceptionFilter } from 'src/engine/metadata-modules/permissions/utils/permissions-graphql-api-exception.filter';
 import { FrontComponentModule } from 'src/engine/metadata-modules/front-component/front-component.module';
@@ -37,6 +38,7 @@ import { WorkspaceMetadataVersionModule } from 'src/engine/metadata-modules/work
 @Module({
   imports: [
     FieldMetadataModule,
+    FormulaMetadataModule,
     FrontComponentModule,
     ObjectMetadataModule,
     SearchFieldMetadataModule,
@@ -79,6 +81,7 @@ import { WorkspaceMetadataVersionModule } from 'src/engine/metadata-modules/work
   ],
   exports: [
     FieldMetadataModule,
+    FormulaMetadataModule,
     FrontComponentModule,
     ObjectMetadataModule,
     SearchFieldMetadataModule,
