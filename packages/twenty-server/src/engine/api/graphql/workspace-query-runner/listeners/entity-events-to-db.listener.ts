@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { createHash } from 'node:crypto';
 import {
   type ObjectRecordCreateEvent,
   type ObjectRecordDeleteEvent,
@@ -20,6 +21,7 @@ import { MessageQueueService } from 'src/engine/core-modules/message-queue/servi
 import { CallWebhookJobsJob } from 'src/engine/metadata-modules/webhook/jobs/call-webhook-jobs.job';
 import { WorkspaceEventBatchForWebhook } from 'src/engine/metadata-modules/webhook/types/workspace-event-batch-for-webhook.type';
 import { CallDatabaseEventTriggerJobsJob } from 'src/engine/core-modules/logic-function/logic-function-trigger/triggers/database-event/call-database-event-trigger-jobs.job';
+import { FormulaRecomputeJob } from 'src/engine/metadata-modules/formula/jobs/formula-recompute.job';
 import { WorkspaceEventBatch } from 'src/engine/workspace-event-emitter/types/workspace-event-batch.type';
 import { ObjectRecordEventPublisher } from 'src/engine/subscriptions/object-record-event/object-record-event-publisher';
 import { UpsertTimelineActivityFromInternalEvent } from 'src/modules/timeline/jobs/upsert-timeline-activity-from-internal-event.job';
@@ -43,7 +45,33 @@ export class EntityEventsToDbListener {
 
   @OnDatabaseBatchEvent('*', DatabaseEventAction.UPDATED)
   async handleUpdate(batchEvent: WorkspaceEventBatch<ObjectRecordUpdateEvent>) {
-    return this.handleEvent(batchEvent, DatabaseEventAction.UPDATED);
+    const eventIdentity = batchEvent.events
+      .map((event) => ({
+        recordId: event.recordId,
+        updatedAt:
+          (event.properties.after as Record<string, unknown>).updatedAt ?? null,
+        updatedFields: [...event.properties.updatedFields].sort(),
+      }))
+      .sort((left, right) => left.recordId.localeCompare(right.recordId));
+    const jobId = createHash('sha256')
+      .update(
+        JSON.stringify({
+          workspaceId: batchEvent.workspaceId,
+          objectMetadataId: batchEvent.objectMetadata.id,
+          events: eventIdentity,
+        }),
+      )
+      .digest('hex');
+
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.UPDATED),
+      this.entityEventsToDbQueueService.add<
+        WorkspaceEventBatch<ObjectRecordUpdateEvent>
+      >(FormulaRecomputeJob.name, batchEvent, {
+        id: `formula-recompute-${jobId}`,
+        retryLimit: 3,
+      }),
+    ]);
   }
 
   @OnDatabaseBatchEvent('*', DatabaseEventAction.DELETED)
