@@ -13,6 +13,7 @@ import {
   assertUnreachable,
   isDefined,
 } from 'twenty-shared/utils';
+import { In } from 'typeorm';
 
 import { computeMorphOrRelationFieldJoinColumnName } from 'src/engine/metadata-modules/field-metadata/utils/compute-morph-or-relation-field-join-column-name.util';
 import { belongsToTwentyStandardApp } from 'src/engine/metadata-modules/utils/belongs-to-twenty-standard-app.util';
@@ -63,10 +64,17 @@ import { findFlatEntityByIdInFlatEntityMaps } from 'src/engine/metadata-modules/
 import { FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { buildFieldMapsFromFlatObjectMetadata } from 'src/engine/metadata-modules/flat-field-metadata/utils/build-field-maps-from-flat-object-metadata.util';
 import { FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
+import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { InjectWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/inject-workspace-scoped-repository.decorator';
+import { WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 
 @Injectable()
 export class DataArgProcessorService {
-  constructor(private readonly recordPositionService: RecordPositionService) {}
+  constructor(
+    private readonly recordPositionService: RecordPositionService,
+    @InjectWorkspaceScopedRepository(FormulaDefinitionEntity)
+    private readonly formulaDefinitionRepository: WorkspaceScopedRepository<FormulaDefinitionEntity>,
+  ) {}
 
   async process({
     partialRecordInputs,
@@ -96,6 +104,42 @@ export class DataArgProcessorService {
         flatFieldMetadataMaps,
         flatObjectMetadata,
       );
+
+    const submittedFieldMetadataIds = [
+      ...new Set(
+        partialRecordInputs.flatMap((record) =>
+          Object.keys(record)
+            .map((key) => fieldIdByName[key] ?? fieldIdByJoinColumnName[key])
+            .filter(isDefined),
+        ),
+      ),
+    ];
+
+    if (submittedFieldMetadataIds.length > 0) {
+      const formulaDefinition = await this.formulaDefinitionRepository.findOne(
+        workspace.id,
+        {
+          select: { outputFieldMetadataId: true },
+          where: {
+            objectMetadataId: flatObjectMetadata.id,
+            outputFieldMetadataId: In(submittedFieldMetadataIds),
+          },
+        },
+      );
+
+      if (formulaDefinition !== null) {
+        const outputFieldName = Object.entries(fieldIdByName).find(
+          ([, fieldMetadataId]) =>
+            fieldMetadataId === formulaDefinition.outputFieldMetadataId,
+        )?.[0];
+
+        throw new CommonQueryRunnerException(
+          `Formula result field "${outputFieldName ?? formulaDefinition.outputFieldMetadataId}" is read-only.`,
+          CommonQueryRunnerExceptionCode.INVALID_ARGS_DATA,
+          { userFriendlyMessage: msg`Formula result fields are read-only.` },
+        );
+      }
+    }
 
     const overriddenPositionRecords =
       await this.recordPositionService.overridePositionOnRecords({

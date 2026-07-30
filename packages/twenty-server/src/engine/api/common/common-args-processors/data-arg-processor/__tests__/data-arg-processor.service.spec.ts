@@ -9,6 +9,9 @@ import { type FlatWorkspace } from 'src/engine/core-modules/workspace/types/flat
 import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
+import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { getWorkspaceScopedRepositoryToken } from 'src/engine/twenty-orm/workspace-scoped-repository/get-workspace-scoped-repository-token.util';
+import { type WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 
 import { failingInputsByFieldMetadataType } from './constants/failing-inputs-by-field-metadata-type.constant';
 import { fieldMetadataConfigByFieldName } from './constants/field-metadata-config-by-field-name.constant';
@@ -25,6 +28,9 @@ jest.mock(
 describe('DataArgProcessorService', () => {
   let dataArgProcessorService: DataArgProcessorService;
   let recordPositionService: jest.Mocked<RecordPositionService>;
+  let formulaDefinitionRepository: jest.Mocked<
+    Pick<WorkspaceScopedRepository<FormulaDefinitionEntity>, 'findOne'>
+  >;
 
   const mockWorkspaceId = '20202020-1234-1234-1234-123456789012';
 
@@ -91,6 +97,9 @@ describe('DataArgProcessorService', () => {
       findByPosition: jest.fn(),
       updatePosition: jest.fn(),
     } as unknown as jest.Mocked<RecordPositionService>;
+    formulaDefinitionRepository = {
+      findOne: jest.fn().mockResolvedValue(null),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -98,6 +107,10 @@ describe('DataArgProcessorService', () => {
         {
           provide: RecordPositionService,
           useValue: recordPositionService,
+        },
+        {
+          provide: getWorkspaceScopedRepositoryToken(FormulaDefinitionEntity),
+          useValue: formulaDefinitionRepository,
         },
       ],
     }).compile();
@@ -113,6 +126,26 @@ describe('DataArgProcessorService', () => {
 
   it('should be defined', () => {
     expect(dataArgProcessorService).toBeDefined();
+  });
+
+  it('rejects writes to Formula result fields', async () => {
+    formulaDefinitionRepository.findOne.mockResolvedValue({
+      outputFieldMetadataId: 'numberField-id',
+    } as FormulaDefinitionEntity);
+
+    await expect(
+      dataArgProcessorService.process({
+        partialRecordInputs: [{ numberField: 999 }],
+        authContext: createMockAuthContext(),
+        flatObjectMetadata: createFlatObjectMetadata(['numberField']),
+        flatFieldMetadataMaps: createFlatFieldMetadataMaps(['numberField']),
+        flatObjectMetadataMaps: {
+          byUniversalIdentifier: {},
+          universalIdentifierById: {},
+          universalIdentifiersByApplicationId: {},
+        },
+      }),
+    ).rejects.toThrow('Formula result field "numberField" is read-only.');
   });
 
   it('should normalize relation connect where composite values', async () => {
