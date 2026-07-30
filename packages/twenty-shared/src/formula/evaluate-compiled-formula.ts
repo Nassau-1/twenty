@@ -119,9 +119,17 @@ export const evaluateCompiledFormula = ({
   const evaluate = (node: FormulaNode): FormulaValue => {
     switch (node.kind) {
       case 'LITERAL':
-        return node.value.type === 'DECIMAL'
-          ? { type: 'NUMBER', value: Number(node.value.value) }
-          : node.value;
+        if (node.value.type !== 'DECIMAL') {
+          return node.value;
+        }
+        const numericValue = Number(node.value.value);
+        if (!Number.isFinite(numericValue)) {
+          throw evaluationError(
+            'Numeric literal is outside finite range.',
+            node,
+          );
+        }
+        return { type: 'NUMBER', value: numericValue };
       case 'REFERENCE': {
         const value = resolveValue(node.reference);
         if (value === undefined) {

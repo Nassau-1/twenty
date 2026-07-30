@@ -117,6 +117,34 @@ describe('compileFormulaEditorDocument and evaluateCompiledFormula', () => {
     });
   });
 
+  it('rejects numeric literals outside finite range', () => {
+    const hugeLiteral = '9'.repeat(400);
+    const compileResult = compileFormulaEditorDocument({
+      document: {
+        version: FORMULA_EDITOR_DOCUMENT_VERSION,
+        source: hugeLiteral,
+        references: [],
+      },
+      resolveReference: () => ({
+        status: 'error',
+        reason: 'NOT_FOUND',
+      }),
+    });
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: () => undefined,
+      }),
+    ).toMatchObject({
+      status: 'error',
+      diagnostics: [{ code: 'EVALUATION_ERROR' }],
+    });
+  });
+
   it('keeps reference resolution keyed by stable metadata identity', () => {
     const compileResult = compileFormulaEditorDocument({
       document,
