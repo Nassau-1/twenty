@@ -7,6 +7,8 @@
  *                              |___/
  */
 
+export { compileFormulaEditorDocument } from './compile-formula-editor-document';
+export { evaluateCompiledFormula } from './evaluate-compiled-formula';
 export type {
   FormulaSourceSpan,
   FormulaObjectOwner,
@@ -30,6 +32,16 @@ export type {
   FormulaDiagnosticCode,
   FormulaDiagnostic,
   FormulaParseResult,
+  FormulaValueType,
+  FormulaOutputType,
+  FormulaType,
+  FormulaReferenceResolution,
+  ResolveFormulaReference,
+  CompiledFormula,
+  FormulaCompileResult,
+  FormulaValue,
+  ResolveFormulaValue,
+  FormulaEvaluationResult,
 } from './formula-types';
 export {
   FORMULA_EDITOR_DOCUMENT_VERSION,

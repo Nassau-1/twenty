@@ -131,14 +131,20 @@ export type FormulaAst = {
 };
 
 export type FormulaDiagnosticCode =
+  | 'ARGUMENT_COUNT_MISMATCH'
   | 'DOCUMENT_VERSION_UNSUPPORTED'
   | 'EMPTY_EXPRESSION'
+  | 'EVALUATION_ERROR'
   | 'EXPRESSION_TOO_DEEP'
   | 'EXPRESSION_TOO_LARGE'
+  | 'FUNCTION_NOT_SUPPORTED'
+  | 'INCOMPATIBLE_TYPES'
   | 'INVALID_CHARACTER'
   | 'INVALID_NUMBER'
   | 'INVALID_REFERENCE_TOKEN'
   | 'INVALID_STRING'
+  | 'REFERENCE_NOT_AUTHORIZED'
+  | 'REFERENCE_NOT_FOUND'
   | 'REFERENCE_TOKEN_OVERLAP'
   | 'REFERENCE_TOKEN_SOURCE_MISMATCH'
   | 'UNEXPECTED_TOKEN';
@@ -153,6 +159,69 @@ export type FormulaParseResult =
   | {
       status: 'success';
       ast: FormulaAst;
+    }
+  | {
+      status: 'error';
+      diagnostics: FormulaDiagnostic[];
+    };
+
+export type FormulaValueType = 'BOOLEAN' | 'NULL' | 'NUMBER' | 'TEXT';
+
+export type FormulaOutputType = Exclude<FormulaValueType, 'NULL'>;
+
+export type FormulaType = {
+  type: FormulaValueType;
+  nullable: boolean;
+};
+
+export type FormulaReferenceResolution =
+  | {
+      status: 'success';
+      type: FormulaOutputType;
+      nullable: boolean;
+    }
+  | {
+      status: 'error';
+      reason: 'NOT_AUTHORIZED' | 'NOT_FOUND';
+    };
+
+export type ResolveFormulaReference = (
+  reference: FormulaReferenceNode['reference'],
+) => FormulaReferenceResolution;
+
+export type CompiledFormula = {
+  ast: FormulaAst;
+  dependencies: FormulaReferenceNode['reference'][];
+  output: {
+    type: FormulaOutputType;
+    nullable: boolean;
+  };
+};
+
+export type FormulaCompileResult =
+  | {
+      status: 'success';
+      compiledFormula: CompiledFormula;
+    }
+  | {
+      status: 'error';
+      diagnostics: FormulaDiagnostic[];
+    };
+
+export type FormulaValue =
+  | { type: 'BOOLEAN'; value: boolean }
+  | { type: 'NULL'; value: null }
+  | { type: 'NUMBER'; value: number }
+  | { type: 'TEXT'; value: string };
+
+export type ResolveFormulaValue = (
+  reference: FormulaReferenceNode['reference'],
+) => FormulaValue | undefined;
+
+export type FormulaEvaluationResult =
+  | {
+      status: 'success';
+      value: FormulaValue;
     }
   | {
       status: 'error';
