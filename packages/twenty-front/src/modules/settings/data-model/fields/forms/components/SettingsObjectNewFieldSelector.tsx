@@ -3,6 +3,7 @@ import { SettingsCard } from '@/settings/components/SettingsCard';
 import { SETTINGS_FIELD_TYPE_CATEGORIES } from '@/settings/data-model/constants/SettingsFieldTypeCategories';
 import { SETTINGS_FIELD_TYPE_CATEGORY_DESCRIPTIONS } from '@/settings/data-model/constants/SettingsFieldTypeCategoryDescriptions';
 import { SETTINGS_FIELD_TYPE_CONFIGS } from '@/settings/data-model/constants/SettingsFieldTypeConfigs';
+import { FORMULA_FIELD_TYPE } from '@/settings/data-model/constants/FormulaFieldType';
 import { type SettingsFieldTypeConfig } from '@/settings/data-model/constants/SettingsNonCompositeFieldTypeConfigs';
 import { useBooleanSettingsFormInitialValues } from '@/settings/data-model/fields/forms/boolean/hooks/useBooleanSettingsFormInitialValues';
 import { useCurrencySettingsFormInitialValues } from '@/settings/data-model/fields/forms/currency/hooks/useCurrencySettingsFormInitialValues';
@@ -17,7 +18,7 @@ import { useContext, useState } from 'react';
 import { Controller, useFormContext } from 'react-hook-form';
 import { SettingsPath } from 'twenty-shared/types';
 import { getSettingsPath } from 'twenty-shared/utils';
-import { IconSearch } from 'twenty-ui/icon';
+import { IconSearch, IllustrationIconNumbers } from 'twenty-ui/icon';
 import { H2Title } from 'twenty-ui/typography';
 import { UndecoratedLink } from 'twenty-ui/navigation';
 import { ThemeContext, themeCssVariables } from 'twenty-ui/theme-constants';
@@ -74,9 +75,19 @@ export const SettingsObjectNewFieldSelector = ({
   const { control, setValue } =
     useFormContext<SettingsDataModelFieldTypeFormValues>();
   const [searchQuery, setSearchQuery] = useState('');
-  const fieldTypeConfigs = Object.entries<SettingsFieldTypeConfig<any>>(
-    SETTINGS_FIELD_TYPE_CONFIGS,
-  ).filter(
+  const fieldTypeConfigs = [
+    ...Object.entries<SettingsFieldTypeConfig<any>>(
+      SETTINGS_FIELD_TYPE_CONFIGS,
+    ),
+    [
+      FORMULA_FIELD_TYPE,
+      {
+        label: t`Formula`,
+        Icon: IllustrationIconNumbers,
+        category: 'Advanced',
+      },
+    ] as const,
+  ].filter(
     ([key, config]) =>
       !excludedFieldTypes.includes(key as SettingsFieldType) &&
       config.label.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -93,7 +104,9 @@ export const SettingsObjectNewFieldSelector = ({
       fieldMetadataId: 'new',
     });
 
-  const resetDefaultValueField = (nextValue: SettingsFieldType) => {
+  const resetDefaultValueField = (
+    nextValue: SettingsFieldType | typeof FORMULA_FIELD_TYPE,
+  ) => {
     switch (nextValue) {
       case FieldMetadataType.BOOLEAN:
         resetBooleanDefaultValueField();
@@ -160,8 +173,17 @@ export const SettingsObjectNewFieldSelector = ({
                           )}
                           fullWidth
                           onClick={() => {
-                            setValue('type', key as SettingsFieldType);
-                            resetDefaultValueField(key as SettingsFieldType);
+                            setValue(
+                              'type',
+                              key as
+                                | SettingsFieldType
+                                | typeof FORMULA_FIELD_TYPE,
+                            );
+                            resetDefaultValueField(
+                              key as
+                                | SettingsFieldType
+                                | typeof FORMULA_FIELD_TYPE,
+                            );
                           }}
                         >
                           <SettingsCard

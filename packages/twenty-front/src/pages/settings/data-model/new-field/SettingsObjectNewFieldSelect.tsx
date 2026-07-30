@@ -3,6 +3,7 @@ import { SettingsPageContainer } from '@/settings/components/SettingsPageContain
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
 import { SettingsWizardStepBar } from '@/settings/components/layout/SettingsWizardStepBar';
 import { SETTINGS_FIELD_TYPE_CONFIGS } from '@/settings/data-model/constants/SettingsFieldTypeConfigs';
+import { FORMULA_FIELD_TYPE } from '@/settings/data-model/constants/FormulaFieldType';
 import { SettingsObjectNewFieldHeaderIcon } from '@/settings/data-model/fields/components/SettingsObjectNewFieldHeaderIcon';
 import { SettingsObjectNewFieldSelector } from '@/settings/data-model/fields/forms/components/SettingsObjectNewFieldSelector';
 import { type FieldType } from '@/settings/data-model/types/FieldType';
@@ -20,12 +21,15 @@ import { FieldMetadataType } from '~/generated-metadata/graphql';
 import { useNavigateApp } from '~/hooks/useNavigateApp';
 
 export const settingsDataModelFieldTypeFormSchema = z.object({
-  type: z.enum(
-    Object.keys(SETTINGS_FIELD_TYPE_CONFIGS) as [
-      SettingsFieldType,
-      ...SettingsFieldType[],
-    ],
-  ),
+  type: z.union([
+    z.enum(
+      Object.keys(SETTINGS_FIELD_TYPE_CONFIGS) as [
+        SettingsFieldType,
+        ...SettingsFieldType[],
+      ],
+    ),
+    z.literal(FORMULA_FIELD_TYPE),
+  ]),
 });
 
 export type SettingsDataModelFieldTypeFormValues = z.infer<

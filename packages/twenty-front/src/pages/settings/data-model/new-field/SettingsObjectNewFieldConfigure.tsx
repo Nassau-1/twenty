@@ -4,16 +4,26 @@ import { useFilteredObjectMetadataItems } from '@/object-metadata/hooks/useFilte
 import { SettingsPageContainer } from '@/settings/components/SettingsPageContainer';
 import { SettingsWizardStepBar } from '@/settings/components/layout/SettingsWizardStepBar';
 import { FIELD_NAME_MAXIMUM_LENGTH } from '@/settings/data-model/constants/FieldNameMaximumLength';
+import { FORMULA_FIELD_TYPE } from '@/settings/data-model/constants/FormulaFieldType';
 import { SettingsObjectNewFieldHeaderIcon } from '@/settings/data-model/fields/components/SettingsObjectNewFieldHeaderIcon';
 import { SettingsDataModelFieldIconLabelForm } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldIconLabelForm';
 import { SettingsDataModelFieldSettingsFormCard } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldSettingsFormCard';
+import { SettingsDataModelFormulaForm } from '@/settings/data-model/fields/forms/formula/components/SettingsDataModelFormulaForm';
+import {
+  createFormulaMetadata,
+  planFormulaMetadata,
+} from '@/settings/data-model/fields/forms/formula/services/formulaMetadataApi';
+import {
+  buildFormulaEditorDocument,
+  normalizeFormulaNumberLiteral,
+} from '@/settings/data-model/fields/forms/formula/utils/buildFormulaEditorDocument';
 import { settingsFieldFormSchema } from '@/settings/data-model/fields/forms/validation-schemas/settingsFieldFormSchema';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
 import { useAtomStateValue } from '@/ui/utilities/state/jotai/hooks/useAtomStateValue';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useLingui } from '@lingui/react/macro';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { FormProvider, useForm } from 'react-hook-form';
 import { useParams, useSearchParams } from 'react-router-dom';
 import {
@@ -47,16 +57,18 @@ export const SettingsObjectNewFieldConfigure = () => {
 
   const { objectNamePlural = '' } = useParams();
   const [searchParams] = useSearchParams();
-  const fieldType =
-    (searchParams.get('fieldType') as FieldMetadataType) ||
-    FieldMetadataType.TEXT;
-  const { enqueueErrorSnackBar } = useSnackBar();
+  const fieldTypeSearchParam = searchParams.get('fieldType');
+  const isFormulaField = fieldTypeSearchParam === FORMULA_FIELD_TYPE;
+  const fieldType = isFormulaField
+    ? FieldMetadataType.NUMBER
+    : ((fieldTypeSearchParam as FieldMetadataType) ?? FieldMetadataType.TEXT);
+  const { enqueueErrorSnackBar, enqueueSuccessSnackBar } = useSnackBar();
 
   const { findObjectMetadataItemByNamePlural } =
     useFilteredObjectMetadataItems();
   const activeObjectMetadataItem =
     findObjectMetadataItemByNamePlural(objectNamePlural);
-  const { createMetadataField } = useFieldMetadataItem();
+  const { createMetadataField, deleteMetadataField } = useFieldMetadataItem();
 
   const formConfig = useForm<SettingsDataModelNewFieldFormValues>({
     mode: 'onTouched',
@@ -85,6 +97,8 @@ export const SettingsObjectNewFieldConfigure = () => {
   }, [fieldType, formConfig]);
 
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedSourceFieldId, setSelectedSourceFieldId] = useState('');
+  const [multiplierLiteral, setMultiplierLiteral] = useState('2');
 
   useEffect(() => {
     if (!isDefined(activeObjectMetadataItem)) {
@@ -92,13 +106,52 @@ export const SettingsObjectNewFieldConfigure = () => {
     }
   }, [activeObjectMetadataItem, navigateApp]);
 
+  const numberFields = useMemo(
+    () =>
+      activeObjectMetadataItem?.fields.filter(
+        (field) =>
+          field.type === FieldMetadataType.NUMBER &&
+          field.isActive !== false &&
+          field.isUIEditable !== false,
+      ) ?? [],
+    [activeObjectMetadataItem?.fields],
+  );
+
+  useEffect(() => {
+    if (
+      isFormulaField &&
+      !numberFields.some((field) => field.id === selectedSourceFieldId)
+    ) {
+      setSelectedSourceFieldId(numberFields[0]?.id ?? '');
+    }
+  }, [isFormulaField, numberFields, selectedSourceFieldId]);
+
   const isDDLLocked = useAtomStateValue(isDDLLockedState);
 
   if (!isDefined(activeObjectMetadataItem)) return null;
 
   const { isValid, isSubmitting } = formConfig.formState;
 
-  const canSave = isValid && !isSubmitting && !isDDLLocked;
+  const sourceField = numberFields.find(
+    (field) => field.id === selectedSourceFieldId,
+  );
+  const normalizedMultiplierLiteral =
+    normalizeFormulaNumberLiteral(multiplierLiteral);
+  const formulaValidationError =
+    numberFields.length === 0
+      ? t`No editable number field is available.`
+      : normalizedMultiplierLiteral === null
+        ? t`Enter a finite decimal multiplier.`
+        : null;
+  const formulaPreview =
+    isDefined(sourceField) && normalizedMultiplierLiteral !== null
+      ? `${sourceField.label} * ${normalizedMultiplierLiteral}`
+      : '';
+  const canSave =
+    isValid &&
+    !isSubmitting &&
+    !isDDLLocked &&
+    (!isFormulaField || formulaValidationError === null);
 
   const handleSave = async (
     formValues: SettingsDataModelNewFieldFormValues,
@@ -115,6 +168,65 @@ export const SettingsObjectNewFieldConfigure = () => {
       }
       setIsSaving(false);
     };
+
+    if (isFormulaField) {
+      if (!isDefined(sourceField) || normalizedMultiplierLiteral === null) {
+        setIsSaving(false);
+        return;
+      }
+
+      const outputFieldCreation = await createMetadataField({
+        ...formValues,
+        type: FieldMetadataType.NUMBER,
+        objectMetadataId: activeObjectMetadataItem.id,
+        isUIEditable: false,
+      });
+
+      if (outputFieldCreation.status !== 'successful') {
+        setIsSaving(false);
+        return;
+      }
+
+      const outputFieldMetadataId =
+        outputFieldCreation.response.data?.createOneField.id;
+
+      if (!isDefined(outputFieldMetadataId)) {
+        setIsSaving(false);
+        enqueueErrorSnackBar({ message: t`Formula could not be created.` });
+        return;
+      }
+
+      const document = buildFormulaEditorDocument({
+        fieldMetadataUniversalIdentifier: sourceField.universalIdentifier,
+        fieldLabel: sourceField.label,
+        multiplierLiteral: normalizedMultiplierLiteral,
+      });
+      const formulaInput = {
+        objectMetadataId: activeObjectMetadataItem.id,
+        outputFieldMetadataId,
+        document,
+        reason: 'Created from the native Data Model Formula editor.',
+      };
+
+      try {
+        await planFormulaMetadata(formulaInput);
+        await createFormulaMetadata(formulaInput);
+        enqueueSuccessSnackBar({ message: t`Formula created` });
+        navigate(SettingsPath.ObjectDetail, { objectNamePlural });
+      } catch (error) {
+        await deleteMetadataField({ idToDelete: outputFieldMetadataId });
+        enqueueErrorSnackBar({
+          message:
+            error instanceof Error
+              ? error.message
+              : t`Formula could not be created.`,
+        });
+      } finally {
+        setIsSaving(false);
+      }
+
+      return;
+    }
 
     if (formValues.type !== FieldMetadataType.MORPH_RELATION) {
       const creationResult = await createMetadataField({
@@ -205,16 +317,20 @@ export const SettingsObjectNewFieldConfigure = () => {
               objectNamePlural,
             }),
           },
-          { children: t`New field` },
+          { children: isFormulaField ? t`New formula` : t`New field` },
         ]}
         secondaryBar={
           <SettingsWizardStepBar
-            label={t`2. Configure field`}
+            label={
+              isFormulaField ? t`2. Configure formula` : t`2. Configure field`
+            }
             onBack={() =>
               navigate(
                 SettingsPath.ObjectNewFieldSelect,
                 { objectNamePlural },
-                { fieldType },
+                {
+                  fieldType: isFormulaField ? FORMULA_FIELD_TYPE : fieldType,
+                },
               )
             }
             trailing={
@@ -241,10 +357,23 @@ export const SettingsObjectNewFieldConfigure = () => {
               isCreationMode={true}
             />
           </Section>
+          {isFormulaField && (
+            <SettingsDataModelFormulaForm
+              numberFields={numberFields}
+              selectedFieldId={selectedSourceFieldId}
+              onSelectedFieldIdChange={setSelectedSourceFieldId}
+              multiplierLiteral={multiplierLiteral}
+              onMultiplierLiteralChange={setMultiplierLiteral}
+              formulaPreview={formulaPreview}
+              validationError={formulaValidationError}
+            />
+          )}
           <Section>
             <H2Title
-              title={t`Customization`}
-              description={t`Customize field settings`}
+              title={isFormulaField ? t`Output formatting` : t`Customization`}
+              description={
+                isFormulaField ? t`Number format` : t`Customize field settings`
+              }
             />
             <SettingsDataModelFieldSettingsFormCard
               fieldType={fieldType}
