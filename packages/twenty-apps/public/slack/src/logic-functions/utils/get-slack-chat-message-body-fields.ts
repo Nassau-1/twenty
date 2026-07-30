@@ -28,7 +28,6 @@ export const getSlackChatMessageBodyFields = ({
   messageFormat,
   messageBlocks,
 }: { messageText: string } & SlackMessageBody): SlackChatMessageBodyFields => {
-  // blocks render the message, so messageText is only Slack's notification and screen-reader fallback
   if (isNonEmptyArray(messageBlocks)) {
     return { blocks: messageBlocks, text: messageText };
   }
