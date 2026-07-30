@@ -46,21 +46,22 @@ export const slackUpdateMessageHandler = async (
     };
   };
 
-  const updateWithFirstRenderableBody = async ([
-    body,
-    ...remainingBodies
-  ]: SlackMessageBody[]): Promise<SlackToolResult> => {
+  const updateWithFirstAcceptedBody = async (
+    bodies: SlackMessageBody[],
+  ): Promise<SlackToolResult> => {
+    const [body, ...remainingBodies] = bodies;
+
     try {
       return await updateWithBody(body);
     } catch (error) {
-      if (
-        !isNonEmptyArray(remainingBodies) ||
-        !isSlackMarkdownFormatError(error)
-      ) {
+      const shouldTrySimplerBody =
+        isNonEmptyArray(remainingBodies) && isSlackMarkdownFormatError(error);
+
+      if (!shouldTrySimplerBody) {
         return slackToolFailure('Failed to update Slack message', error);
       }
 
-      return await updateWithFirstRenderableBody(remainingBodies);
+      return await updateWithFirstAcceptedBody(remainingBodies);
     }
   };
 
@@ -69,7 +70,7 @@ export const slackUpdateMessageHandler = async (
     messageBlocks: parameters.messageBlocks,
   };
 
-  return await updateWithFirstRenderableBody([
+  return await updateWithFirstAcceptedBody([
     messageBody,
     ...getSlackMessageBodyFallbacks(messageBody),
   ]);
