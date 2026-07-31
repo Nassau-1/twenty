@@ -102,8 +102,23 @@ describe('FormulaApplicationService', () => {
     valueAt: jest.fn(),
     appendFormulaMaterialization: jest.fn(),
   };
+  const transactionManager = {
+    getRepository: jest.fn(),
+  };
+  const queryRunner = {
+    commitTransaction: jest.fn(),
+    connect: jest.fn(),
+    manager: transactionManager,
+    release: jest.fn(),
+    rollbackTransaction: jest.fn(),
+    startTransaction: jest.fn(),
+  };
+  const workspaceDataSource = {
+    createQueryRunner: jest.fn(),
+  };
   const globalWorkspaceOrmManager = {
     executeInWorkspaceContext: jest.fn((callback) => callback()),
+    getGlobalWorkspaceDataSource: jest.fn(),
     getRepository: jest.fn(),
   };
   const service = new FormulaApplicationService(
@@ -128,6 +143,11 @@ describe('FormulaApplicationService', () => {
     relationCountQueryBuilder.where.mockReturnValue(relationCountQueryBuilder);
     recordRepository.createQueryBuilder.mockReturnValue(
       relationCountQueryBuilder,
+    );
+    transactionManager.getRepository.mockReturnValue(recordRepository);
+    workspaceDataSource.createQueryRunner.mockReturnValue(queryRunner);
+    globalWorkspaceOrmManager.getGlobalWorkspaceDataSource.mockResolvedValue(
+      workspaceDataSource,
     );
     formulaDependencyPlannerService.planProspectiveVersion.mockResolvedValue({
       candidateOutputFieldMetadataId: 'output-id',
@@ -481,7 +501,9 @@ describe('FormulaApplicationService', () => {
       formulaResult: null,
       updatedAt: '2026-07-30T12:00:00.000Z',
     });
-    relationCountQueryBuilder.getRawOne.mockResolvedValue({ count: '3' });
+    relationCountQueryBuilder.getRawOne
+      .mockResolvedValueOnce({ count: '2' })
+      .mockResolvedValue({ count: '3' });
     globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
 
     await expect(
@@ -502,6 +524,14 @@ describe('FormulaApplicationService', () => {
     expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
       formulaResult: 3,
     });
+    expect(
+      formulaAuthorizationService.assertCanReadDependencies,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      dependencyFieldMetadataIds: ['people-relation-id'],
+      dependencyObjectMetadataIds: ['person-object-id'],
+    });
 
     recordRepository.update.mockClear();
     relationCountQueryBuilder.getRawOne.mockResolvedValue({ count: '10001' });
@@ -512,6 +542,8 @@ describe('FormulaApplicationService', () => {
         recordId: 'record-id',
       }),
     ).rejects.toThrow('Formula relation count exceeds the 10000 record limit.');
-    expect(recordRepository.update).not.toHaveBeenCalled();
+    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+      formulaResult: null,
+    });
   });
 });

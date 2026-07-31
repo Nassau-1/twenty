@@ -1,7 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 
-import { type ObjectRecordUpdateEvent } from 'twenty-shared/database-events';
+import {
+  type ObjectRecordEvent,
+  type ObjectRecordUpdateEvent,
+} from 'twenty-shared/database-events';
 import { type FormulaNode } from 'twenty-shared/formula';
 import { type Repository } from 'typeorm';
 
@@ -72,6 +75,27 @@ const collectRelatedRecordIds = (value: unknown): string[] => {
   return [];
 };
 
+const collectRelationIdsFromRecord = (
+  record: Record<string, unknown> | undefined,
+  field: FieldMetadataEntity,
+): string[] => {
+  if (record === undefined) {
+    return [];
+  }
+
+  const settings = field.settings as
+    | { joinColumnName?: string | null }
+    | null
+    | undefined;
+  const valueKeys = new Set([
+    field.name,
+    `${field.name}Id`,
+    ...(settings?.joinColumnName ? [settings.joinColumnName] : []),
+  ]);
+
+  return [...valueKeys].flatMap((key) => collectRelatedRecordIds(record[key]));
+};
+
 @Injectable()
 export class FormulaReactiveService {
   constructor(
@@ -87,6 +111,12 @@ export class FormulaReactiveService {
     batch: WorkspaceEventBatch<
       ObjectRecordUpdateEvent<Record<string, unknown>>
     >,
+  ): Promise<{ recomputedCount: number }> {
+    return this.recomputeFromEventBatch(batch);
+  }
+
+  async recomputeFromEventBatch(
+    batch: WorkspaceEventBatch<ObjectRecordEvent<Record<string, unknown>>>,
   ): Promise<{ recomputedCount: number }> {
     const [fields, definitions] = await Promise.all([
       this.fieldMetadataRepository.find({
@@ -160,11 +190,15 @@ export class FormulaReactiveService {
         ),
     );
 
-    await this.formulaHistoryService.captureFieldUpdates(
-      batch,
-      trackedFieldMetadataIds,
-      formulaOutputFieldMetadataIds,
-    );
+    if (batch.name.endsWith('.updated')) {
+      await this.formulaHistoryService.captureFieldUpdates(
+        batch as WorkspaceEventBatch<
+          ObjectRecordUpdateEvent<Record<string, unknown>>
+        >,
+        trackedFieldMetadataIds,
+        formulaOutputFieldMetadataIds,
+      );
+    }
 
     const recomputeTargets = new Map<
       string,
@@ -179,10 +213,13 @@ export class FormulaReactiveService {
         recordId,
       });
     };
+    const shouldRecomputeNewRecord =
+      batch.name.endsWith('.created') || batch.name.endsWith('.restored');
 
     for (const event of batch.events) {
+      const updatedFields = event.properties.updatedFields ?? [];
       const changedFieldUniversalIdentifiers = new Set(
-        event.properties.updatedFields
+        updatedFields
           .map((fieldName) => fieldUniversalIdentifierByName.get(fieldName))
           .filter(
             (universalIdentifier): universalIdentifier is string =>
@@ -190,16 +227,13 @@ export class FormulaReactiveService {
           ),
       );
 
-      if (changedFieldUniversalIdentifiers.size === 0) {
-        continue;
-      }
-
       for (const { definition, activeVersion } of activeDefinitions) {
         if (definition.objectMetadataId !== batch.objectMetadata.id) {
           continue;
         }
-        const dependsOnChangedField = activeVersion.dependencies.some(
-          (dependency) => {
+        const dependsOnChangedField =
+          shouldRecomputeNewRecord ||
+          activeVersion.dependencies.some((dependency) => {
             const dependencyUniversalIdentifier =
               dependency.kind === 'FIELD'
                 ? dependency.fieldMetadataUniversalIdentifier
@@ -213,8 +247,7 @@ export class FormulaReactiveService {
                 dependencyUniversalIdentifier,
               )
             );
-          },
-        );
+          });
 
         if (!dependsOnChangedField) {
           continue;
@@ -223,10 +256,9 @@ export class FormulaReactiveService {
         addRecomputeTarget(definition.id, event.recordId);
       }
 
-      const eventDiff = (event.properties.diff ?? {}) as Record<
-        string,
-        { before?: unknown; after?: unknown } | undefined
-      >;
+      const eventDiff = event.properties.diff ?? {};
+      const beforeRecord = event.properties.before;
+      const afterRecord = event.properties.after;
 
       for (const relationField of reverseRelationFields) {
         if (relationField.relationTargetFieldMetadataId === null) {
@@ -239,7 +271,8 @@ export class FormulaReactiveService {
 
         if (
           inverseField === undefined ||
-          !event.properties.updatedFields.includes(inverseField.name)
+          (batch.name.endsWith('.updated') &&
+            !updatedFields.includes(inverseField.name))
         ) {
           continue;
         }
@@ -248,6 +281,8 @@ export class FormulaReactiveService {
         const affectedOwnerRecordIds = new Set([
           ...collectRelatedRecordIds(relationChange?.before),
           ...collectRelatedRecordIds(relationChange?.after),
+          ...collectRelationIdsFromRecord(beforeRecord, inverseField),
+          ...collectRelationIdsFromRecord(afterRecord, inverseField),
         ]);
 
         for (const { definition, activeVersion } of activeDefinitions) {
@@ -279,7 +314,7 @@ export class FormulaReactiveService {
         `${right.formulaDefinitionId}:${right.recordId}`,
       ),
     )) {
-      await this.formulaApplicationService.recomputeRecord({
+      await this.formulaApplicationService.recomputeRecordAsSystem({
         workspaceId: batch.workspaceId,
         formulaDefinitionId,
         recordId,

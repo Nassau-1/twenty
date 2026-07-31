@@ -63,6 +63,9 @@ describe('WorkspaceRolesPermissionsCacheService', () => {
   let objectMetadataRepository: jest.Mocked<
     Pick<Repository<ObjectMetadataEntity>, 'find'>
   >;
+  let fieldMetadataRepository: jest.Mocked<
+    Pick<Repository<FieldMetadataEntity>, 'find'>
+  >;
   let objectPermissionRepository: jest.Mocked<
     Pick<WorkspaceScopedRepository<ObjectPermissionEntity>, 'find'>
   >;
@@ -105,7 +108,7 @@ describe('WorkspaceRolesPermissionsCacheService', () => {
     objectMetadataRepository = {
       find: jest.fn().mockResolvedValue(workspaceObjectMetadataFixture),
     };
-    const fieldMetadataRepository = {
+    fieldMetadataRepository = {
       find: jest.fn().mockResolvedValue([]),
     };
     const formulaDefinitionRepository = {
@@ -176,6 +179,22 @@ describe('WorkspaceRolesPermissionsCacheService', () => {
     }).compile();
 
     service = module.get(WorkspaceRolesPermissionsCacheService);
+  });
+
+  it('loads relation targets for Formula read-access decisions', async () => {
+    roleRepository.find.mockResolvedValue([]);
+
+    await service.computeForCache(WORKSPACE_ID);
+
+    expect(fieldMetadataRepository.find).toHaveBeenCalledWith({
+      where: { workspaceId: WORKSPACE_ID },
+      select: [
+        'id',
+        'objectMetadataId',
+        'relationTargetObjectMetadataId',
+        'universalIdentifier',
+      ],
+    });
   });
 
   describe('workspaceMember object', () => {

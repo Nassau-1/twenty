@@ -1,4 +1,4 @@
-import { type ObjectRecordUpdateEvent } from 'twenty-shared/database-events';
+import { type ObjectRecordEvent } from 'twenty-shared/database-events';
 
 import { Process } from 'src/engine/core-modules/message-queue/decorators/process.decorator';
 import { Processor } from 'src/engine/core-modules/message-queue/decorators/processor.decorator';
@@ -14,10 +14,8 @@ export class FormulaRecomputeJob {
 
   @Process(FormulaRecomputeJob.name)
   async handle(
-    batch: WorkspaceEventBatch<
-      ObjectRecordUpdateEvent<Record<string, unknown>>
-    >,
+    batch: WorkspaceEventBatch<ObjectRecordEvent<Record<string, unknown>>>,
   ): Promise<void> {
-    await this.formulaReactiveService.recomputeFromUpdateBatch(batch);
+    await this.formulaReactiveService.recomputeFromEventBatch(batch);
   }
 }
