@@ -8,13 +8,17 @@ import { FORMULA_FIELD_TYPE } from '@/settings/data-model/constants/FormulaField
 import { SettingsObjectNewFieldHeaderIcon } from '@/settings/data-model/fields/components/SettingsObjectNewFieldHeaderIcon';
 import { SettingsDataModelFieldIconLabelForm } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldIconLabelForm';
 import { SettingsDataModelFieldSettingsFormCard } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldSettingsFormCard';
-import { SettingsDataModelFormulaForm } from '@/settings/data-model/fields/forms/formula/components/SettingsDataModelFormulaForm';
+import {
+  type FormulaCalculationType,
+  SettingsDataModelFormulaForm,
+} from '@/settings/data-model/fields/forms/formula/components/SettingsDataModelFormulaForm';
 import {
   createFormulaMetadata,
   planFormulaMetadata,
 } from '@/settings/data-model/fields/forms/formula/services/formulaMetadataApi';
 import {
   buildFormulaEditorDocument,
+  buildRelationCountFormulaEditorDocument,
   normalizeFormulaNumberLiteral,
 } from '@/settings/data-model/fields/forms/formula/utils/buildFormulaEditorDocument';
 import { settingsFieldFormSchema } from '@/settings/data-model/fields/forms/validation-schemas/settingsFieldFormSchema';
@@ -98,6 +102,8 @@ export const SettingsObjectNewFieldConfigure = () => {
 
   const [isSaving, setIsSaving] = useState(false);
   const [selectedSourceFieldId, setSelectedSourceFieldId] = useState('');
+  const [formulaCalculationType, setFormulaCalculationType] =
+    useState<FormulaCalculationType>('COUNT_RELATED_RECORDS');
   const [multiplierLiteral, setMultiplierLiteral] = useState('2');
 
   useEffect(() => {
@@ -117,14 +123,28 @@ export const SettingsObjectNewFieldConfigure = () => {
     [activeObjectMetadataItem?.fields],
   );
 
+  const relationFields = useMemo(
+    () =>
+      activeObjectMetadataItem?.fields.filter(
+        (field) =>
+          field.type === FieldMetadataType.RELATION && field.isActive !== false,
+      ) ?? [],
+    [activeObjectMetadataItem?.fields],
+  );
+
+  const formulaSourceFields =
+    formulaCalculationType === 'COUNT_RELATED_RECORDS'
+      ? relationFields
+      : numberFields;
+
   useEffect(() => {
     if (
       isFormulaField &&
-      !numberFields.some((field) => field.id === selectedSourceFieldId)
+      !formulaSourceFields.some((field) => field.id === selectedSourceFieldId)
     ) {
-      setSelectedSourceFieldId(numberFields[0]?.id ?? '');
+      setSelectedSourceFieldId(formulaSourceFields[0]?.id ?? '');
     }
-  }, [isFormulaField, numberFields, selectedSourceFieldId]);
+  }, [formulaSourceFields, isFormulaField, selectedSourceFieldId]);
 
   const isDDLLocked = useAtomStateValue(isDDLLockedState);
 
@@ -132,21 +152,27 @@ export const SettingsObjectNewFieldConfigure = () => {
 
   const { isValid, isSubmitting } = formConfig.formState;
 
-  const sourceField = numberFields.find(
+  const sourceField = formulaSourceFields.find(
     (field) => field.id === selectedSourceFieldId,
   );
   const normalizedMultiplierLiteral =
     normalizeFormulaNumberLiteral(multiplierLiteral);
   const formulaValidationError =
-    numberFields.length === 0
-      ? t`No editable number field is available.`
-      : normalizedMultiplierLiteral === null
+    formulaSourceFields.length === 0
+      ? formulaCalculationType === 'COUNT_RELATED_RECORDS'
+        ? t`No relation field is available.`
+        : t`No editable number field is available.`
+      : formulaCalculationType === 'MULTIPLY_NUMBER' &&
+          normalizedMultiplierLiteral === null
         ? t`Enter a finite decimal multiplier.`
         : null;
-  const formulaPreview =
-    isDefined(sourceField) && normalizedMultiplierLiteral !== null
-      ? `${sourceField.label} * ${normalizedMultiplierLiteral}`
-      : '';
+  const formulaPreview = !isDefined(sourceField)
+    ? ''
+    : formulaCalculationType === 'COUNT_RELATED_RECORDS'
+      ? `count(${sourceField.label})`
+      : normalizedMultiplierLiteral === null
+        ? ''
+        : `${sourceField.label} * ${normalizedMultiplierLiteral}`;
   const canSave =
     isValid &&
     !isSubmitting &&
@@ -170,7 +196,11 @@ export const SettingsObjectNewFieldConfigure = () => {
     };
 
     if (isFormulaField) {
-      if (!isDefined(sourceField) || normalizedMultiplierLiteral === null) {
+      if (
+        !isDefined(sourceField) ||
+        (formulaCalculationType === 'MULTIPLY_NUMBER' &&
+          normalizedMultiplierLiteral === null)
+      ) {
         setIsSaving(false);
         return;
       }
@@ -196,11 +226,18 @@ export const SettingsObjectNewFieldConfigure = () => {
         return;
       }
 
-      const document = buildFormulaEditorDocument({
-        fieldMetadataUniversalIdentifier: sourceField.universalIdentifier,
-        fieldLabel: sourceField.label,
-        multiplierLiteral: normalizedMultiplierLiteral,
-      });
+      const document =
+        formulaCalculationType === 'COUNT_RELATED_RECORDS'
+          ? buildRelationCountFormulaEditorDocument({
+              relationFieldMetadataUniversalIdentifier:
+                sourceField.universalIdentifier,
+              relationFieldLabel: sourceField.label,
+            })
+          : buildFormulaEditorDocument({
+              fieldMetadataUniversalIdentifier: sourceField.universalIdentifier,
+              fieldLabel: sourceField.label,
+              multiplierLiteral: normalizedMultiplierLiteral,
+            });
       const formulaInput = {
         objectMetadataId: activeObjectMetadataItem.id,
         outputFieldMetadataId,
@@ -359,9 +396,11 @@ export const SettingsObjectNewFieldConfigure = () => {
           </Section>
           {isFormulaField && (
             <SettingsDataModelFormulaForm
-              numberFields={numberFields}
+              sourceFields={formulaSourceFields}
               selectedFieldId={selectedSourceFieldId}
               onSelectedFieldIdChange={setSelectedSourceFieldId}
+              calculationType={formulaCalculationType}
+              onCalculationTypeChange={setFormulaCalculationType}
               multiplierLiteral={multiplierLiteral}
               onMultiplierLiteralChange={setMultiplierLiteral}
               formulaPreview={formulaPreview}

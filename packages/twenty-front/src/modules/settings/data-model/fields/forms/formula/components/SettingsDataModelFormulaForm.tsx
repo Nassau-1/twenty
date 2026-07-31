@@ -26,19 +26,27 @@ const StyledError = styled.div`
 `;
 
 type SettingsDataModelFormulaFormProps = {
-  numberFields: FieldMetadataItem[];
+  sourceFields: FieldMetadataItem[];
   selectedFieldId: string;
   onSelectedFieldIdChange: (fieldMetadataId: string) => void;
+  calculationType: FormulaCalculationType;
+  onCalculationTypeChange: (calculationType: FormulaCalculationType) => void;
   multiplierLiteral: string;
   onMultiplierLiteralChange: (value: string) => void;
   formulaPreview: string;
   validationError: string | null;
 };
 
+export type FormulaCalculationType =
+  | 'COUNT_RELATED_RECORDS'
+  | 'MULTIPLY_NUMBER';
+
 export const SettingsDataModelFormulaForm = ({
-  numberFields,
+  sourceFields,
   selectedFieldId,
   onSelectedFieldIdChange,
+  calculationType,
+  onCalculationTypeChange,
   multiplierLiteral,
   onMultiplierLiteralChange,
   formulaPreview,
@@ -50,24 +58,44 @@ export const SettingsDataModelFormulaForm = ({
     <Section>
       <H2Title title={t`Formula`} description={t`Calculation`} />
       <StyledInputs>
+        <Select<FormulaCalculationType>
+          dropdownId="formula-calculation-type"
+          fullWidth
+          label={t`Calculation`}
+          value={calculationType}
+          onChange={onCalculationTypeChange}
+          options={[
+            {
+              label: t`Count related records`,
+              value: 'COUNT_RELATED_RECORDS',
+            },
+            { label: t`Multiply a number`, value: 'MULTIPLY_NUMBER' },
+          ]}
+        />
         <Select<string>
           dropdownId="formula-source-field"
           fullWidth
           withSearchInput
-          label={t`Source number field`}
+          label={
+            calculationType === 'COUNT_RELATED_RECORDS'
+              ? t`Relation field`
+              : t`Source number field`
+          }
           value={selectedFieldId}
           onChange={onSelectedFieldIdChange}
-          options={numberFields.map((field) => ({
+          options={sourceFields.map((field) => ({
             label: field.label,
             value: field.id,
           }))}
         />
-        <SettingsTextInput
-          instanceId="formula-multiplier"
-          label={t`Multiplier`}
-          value={multiplierLiteral}
-          onChange={onMultiplierLiteralChange}
-        />
+        {calculationType === 'MULTIPLY_NUMBER' && (
+          <SettingsTextInput
+            instanceId="formula-multiplier"
+            label={t`Multiplier`}
+            value={multiplierLiteral}
+            onChange={onMultiplierLiteralChange}
+          />
+        )}
       </StyledInputs>
       <TextArea
         textAreaId="formula-preview"

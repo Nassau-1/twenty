@@ -35,3 +35,22 @@ export const buildFormulaEditorDocument = ({
     },
   ],
 });
+
+export const buildRelationCountFormulaEditorDocument = ({
+  relationFieldMetadataUniversalIdentifier,
+  relationFieldLabel,
+}: {
+  relationFieldMetadataUniversalIdentifier: string;
+  relationFieldLabel: string;
+}): FormulaEditorDocument => ({
+  version: FORMULA_EDITOR_DOCUMENT_VERSION,
+  source: `count(${relationFieldLabel})`,
+  references: [
+    {
+      kind: 'RELATION',
+      relationFieldMetadataUniversalIdentifier,
+      label: relationFieldLabel,
+      span: { start: 6, end: 6 + relationFieldLabel.length },
+    },
+  ],
+});
