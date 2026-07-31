@@ -11,6 +11,9 @@ import {
   evaluateCompiledFormula,
   FORMULA_SECURITY_LIMITS,
   type FormulaEditorDocument,
+  type FormulaHistoricalFunctionName,
+  type FormulaHistoricalValueResolution,
+  type FormulaNode,
   type FormulaValue,
 } from 'twenty-shared/formula';
 import { FieldMetadataType } from 'twenty-shared/types';
@@ -24,6 +27,10 @@ import {
   type FormulaDependencyPlan,
   FormulaDependencyPlannerService,
 } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
+import {
+  FormulaHistoryService,
+  type FormulaHistoryLookupResult,
+} from 'src/engine/metadata-modules/formula/formula-history.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
@@ -31,6 +38,7 @@ import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system
 
 type FormulaRecord = ObjectLiteral & {
   id: string;
+  updatedAt?: Date | string;
 };
 
 type CreateFormulaArgs = {
@@ -40,6 +48,80 @@ type CreateFormulaArgs = {
   document: FormulaEditorDocument;
   reason: string | null;
 };
+
+type HistoricalLookup = {
+  functionName: FormulaHistoricalFunctionName;
+  fieldMetadataUniversalIdentifier: string;
+  at?: string;
+};
+
+const historicalLookupKey = ({
+  functionName,
+  fieldMetadataUniversalIdentifier,
+  at,
+}: HistoricalLookup): string =>
+  `${functionName}:${fieldMetadataUniversalIdentifier}:${at ?? ''}`;
+
+const collectHistoricalLookups = (root: FormulaNode): HistoricalLookup[] => {
+  const lookups: HistoricalLookup[] = [];
+  const visit = (node: FormulaNode): void => {
+    if (
+      node.kind === 'CALL' &&
+      (node.functionName === 'previousValue' || node.functionName === 'valueAt')
+    ) {
+      const referenceNode = node.arguments[0];
+      const atNode = node.arguments[1];
+
+      if (
+        referenceNode.kind === 'REFERENCE' &&
+        referenceNode.reference.kind === 'FIELD'
+      ) {
+        lookups.push({
+          functionName: node.functionName,
+          fieldMetadataUniversalIdentifier:
+            referenceNode.reference.fieldMetadataUniversalIdentifier,
+          at:
+            node.functionName === 'valueAt' &&
+            atNode?.kind === 'LITERAL' &&
+            atNode.value.type === 'TEXT'
+              ? atNode.value.value
+              : undefined,
+        });
+      }
+    }
+
+    switch (node.kind) {
+      case 'BINARY':
+        visit(node.left);
+        visit(node.right);
+        break;
+      case 'CALL':
+        node.arguments.forEach(visit);
+        break;
+      case 'UNARY':
+        visit(node.operand);
+        break;
+      case 'LITERAL':
+      case 'REFERENCE':
+        break;
+    }
+  };
+
+  visit(root);
+
+  return [
+    ...new Map(
+      lookups.map((lookup) => [historicalLookupKey(lookup), lookup]),
+    ).values(),
+  ];
+};
+
+const toHistoricalResolution = (
+  result: FormulaHistoryLookupResult,
+): FormulaHistoricalValueResolution =>
+  result.status === 'available'
+    ? { status: 'available', value: result.value }
+    : { status: 'unavailable' };
 
 @Injectable()
 export class FormulaApplicationService {
@@ -51,6 +133,7 @@ export class FormulaApplicationService {
     private readonly formulaDependencyPlannerService: FormulaDependencyPlannerService,
     private readonly formulaAuthorizationService: FormulaAuthorizationService,
     private readonly formulaMetadataService: FormulaMetadataService,
+    private readonly formulaHistoryService: FormulaHistoryService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
   ) {}
 
@@ -274,6 +357,8 @@ export class FormulaApplicationService {
     value: number | null;
     evaluatorVersion: string;
     instructionCount: number;
+    historyReceiptId: string;
+    historyAppended: boolean;
   }> {
     const definition = await this.getFormula({
       workspaceId,
@@ -342,6 +427,62 @@ export class FormulaApplicationService {
           throw new NotFoundException('Formula record was not found.');
         }
 
+        const historicalResolutions = new Map<
+          string,
+          FormulaHistoricalValueResolution
+        >();
+
+        await Promise.all(
+          collectHistoricalLookups(compiledFormula.ast.root).map(
+            async (lookup) => {
+              const field = fieldsByUniversalIdentifier.get(
+                lookup.fieldMetadataUniversalIdentifier,
+              );
+
+              if (field === undefined) {
+                historicalResolutions.set(historicalLookupKey(lookup), {
+                  status: 'unavailable',
+                });
+
+                return;
+              }
+
+              let result: FormulaHistoryLookupResult;
+
+              if (lookup.functionName === 'previousValue') {
+                result = await this.formulaHistoryService.previousValue({
+                  workspaceId,
+                  objectMetadataId: definition.objectMetadataId,
+                  recordId,
+                  fieldMetadataId: field.id,
+                });
+              } else {
+                const at = new Date(lookup.at ?? '');
+
+                if (Number.isNaN(at.getTime())) {
+                  throw new BadRequestException(
+                    'valueAt requires a valid ISO timestamp.',
+                  );
+                }
+                result = await this.formulaHistoryService.valueAt(
+                  {
+                    workspaceId,
+                    objectMetadataId: definition.objectMetadataId,
+                    recordId,
+                    fieldMetadataId: field.id,
+                  },
+                  at,
+                );
+              }
+
+              historicalResolutions.set(
+                historicalLookupKey(lookup),
+                toHistoricalResolution(result),
+              );
+            },
+          ),
+        );
+
         const evaluation = evaluateCompiledFormula({
           compiledFormula,
           resolveValue: (reference): FormulaValue | undefined => {
@@ -368,6 +509,22 @@ export class FormulaApplicationService {
 
             return { type: 'NUMBER', value: rawValue };
           },
+          resolveHistoricalValue: (request) => {
+            if (request.reference.kind !== 'FIELD') {
+              return { status: 'unavailable' };
+            }
+
+            return (
+              historicalResolutions.get(
+                historicalLookupKey({
+                  functionName: request.functionName,
+                  fieldMetadataUniversalIdentifier:
+                    request.reference.fieldMetadataUniversalIdentifier,
+                  at: request.at,
+                }),
+              ) ?? { status: 'unavailable' }
+            );
+          },
         });
 
         if (evaluation.status === 'error') {
@@ -391,6 +548,27 @@ export class FormulaApplicationService {
         await repository.update(recordId, {
           [outputField.name]: value,
         } as unknown as QueryDeepPartialEntity<FormulaRecord>);
+        const recordEffectiveAt =
+          record.updatedAt instanceof Date
+            ? record.updatedAt
+            : typeof record.updatedAt === 'string'
+              ? new Date(record.updatedAt)
+              : new Date();
+        const effectiveAt = Number.isNaN(recordEffectiveAt.getTime())
+          ? new Date()
+          : recordEffectiveAt;
+        const historyReceipt =
+          await this.formulaHistoryService.appendFormulaMaterialization({
+            workspaceId,
+            objectMetadataId: definition.objectMetadataId,
+            recordId,
+            fieldMetadataId: outputField.id,
+            formulaDefinitionId: definition.id,
+            formulaVersionId: activeVersion.id,
+            beforeValue: record[outputField.name],
+            afterValue: value,
+            effectiveAt,
+          });
 
         return {
           formulaDefinitionId: definition.id,
@@ -400,6 +578,8 @@ export class FormulaApplicationService {
           value,
           evaluatorVersion: evaluation.evaluatorVersion,
           instructionCount: evaluation.instructionCount,
+          historyReceiptId: historyReceipt.evaluationReceiptId,
+          historyAppended: historyReceipt.inserted,
         };
       },
       authContext,

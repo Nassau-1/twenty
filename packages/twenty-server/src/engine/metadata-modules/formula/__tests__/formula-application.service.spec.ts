@@ -12,6 +12,7 @@ import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/ent
 import { FormulaAuthorizationService } from 'src/engine/metadata-modules/formula/formula-authorization.service';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
 import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
+import { FormulaHistoryService } from 'src/engine/metadata-modules/formula/formula-history.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
@@ -78,6 +79,11 @@ describe('FormulaApplicationService', () => {
     findOne: jest.fn(),
     update: jest.fn(),
   };
+  const formulaHistoryService = {
+    previousValue: jest.fn(),
+    valueAt: jest.fn(),
+    appendFormulaMaterialization: jest.fn(),
+  };
   const globalWorkspaceOrmManager = {
     executeInWorkspaceContext: jest.fn((callback) => callback()),
     getRepository: jest.fn(),
@@ -88,6 +94,7 @@ describe('FormulaApplicationService', () => {
     formulaDependencyPlannerService as unknown as FormulaDependencyPlannerService,
     formulaAuthorizationService as unknown as FormulaAuthorizationService,
     formulaMetadataService as unknown as FormulaMetadataService,
+    formulaHistoryService as unknown as FormulaHistoryService,
     globalWorkspaceOrmManager as unknown as GlobalWorkspaceOrmManager,
   );
 
@@ -105,6 +112,10 @@ describe('FormulaApplicationService', () => {
       maxFormulaDepth: 1,
       topologicalOutputFieldMetadataIds: ['output-id'],
       summary: 'Formula depth 1; 0 direct upstream Formulas.',
+    });
+    formulaHistoryService.appendFormulaMaterialization.mockResolvedValue({
+      evaluationReceiptId: 'receipt-id',
+      inserted: true,
     });
   });
 
@@ -228,6 +239,7 @@ describe('FormulaApplicationService', () => {
       id: 'record-id',
       revenue: 125,
       formulaResult: null,
+      updatedAt: '2026-07-30T12:00:00.000Z',
     });
     globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
 
@@ -243,11 +255,99 @@ describe('FormulaApplicationService', () => {
       recordId: 'record-id',
       outputFieldName: 'formulaResult',
       value: 250,
-      evaluatorVersion: '1.0.0',
+      evaluatorVersion: '1.1.0',
       instructionCount: 3,
     });
     expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
       formulaResult: 250,
+    });
+    expect(
+      formulaHistoryService.appendFormulaMaterialization,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        formulaDefinitionId: 'definition-id',
+        formulaVersionId: 'version-id',
+        beforeValue: null,
+        afterValue: 250,
+      }),
+    );
+  });
+
+  it('materializes a previousValue Formula from authoritative history', async () => {
+    const historicalDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'previousValue(Revenue) * 2',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'revenue-field',
+          label: 'Revenue',
+          span: { start: 14, end: 21 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: historicalDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'NUMBER',
+        nullable: false,
+      }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected historical Formula compilation to succeed.');
+    }
+
+    formulaMetadataService.findById.mockResolvedValue({
+      id: 'definition-id',
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      outputFieldMetadataId: 'output-id',
+      activeVersionId: 'version-id',
+      versions: [
+        {
+          id: 'version-id',
+          ast: compileResult.compiledFormula.ast,
+          dependencies: compileResult.compiledFormula.dependencies,
+          outputType: 'NUMBER',
+          isNullable: true,
+        },
+      ],
+    } as FormulaDefinitionEntity);
+    recordRepository.findOne.mockResolvedValue({
+      id: 'record-id',
+      revenue: 125,
+      formulaResult: null,
+      updatedAt: '2026-07-30T12:00:00.000Z',
+    });
+    globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
+    formulaHistoryService.previousValue.mockResolvedValue({
+      status: 'available',
+      value: { type: 'NUMBER', value: 100 },
+      effectiveAt: new Date('2026-07-30T12:00:00.000Z'),
+      sequence: '1',
+    });
+
+    await expect(
+      service.recomputeRecord({
+        workspaceId: 'workspace-id',
+        formulaDefinitionId: 'definition-id',
+        recordId: 'record-id',
+      }),
+    ).resolves.toMatchObject({
+      value: 200,
+      evaluatorVersion: '1.1.0',
+      historyAppended: true,
+    });
+    expect(formulaHistoryService.previousValue).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      recordId: 'record-id',
+      fieldMetadataId: 'revenue-id',
+    });
+    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+      formulaResult: 200,
     });
   });
 });

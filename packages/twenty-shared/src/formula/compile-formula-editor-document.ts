@@ -106,6 +106,57 @@ const inferCallType = ({
 }): FormulaType => {
   const argumentTypes = node.arguments.map(infer);
 
+  if (
+    node.functionName === 'previousValue' ||
+    node.functionName === 'valueAt'
+  ) {
+    const expectedArgumentCount = node.functionName === 'previousValue' ? 1 : 2;
+
+    if (argumentTypes.length !== expectedArgumentCount) {
+      throw error(
+        'ARGUMENT_COUNT_MISMATCH',
+        `${node.functionName} expects exactly ${expectedArgumentCount} argument${expectedArgumentCount === 1 ? '' : 's'}.`,
+        node,
+      );
+    }
+
+    const sourceArgument = node.arguments[0];
+
+    if (
+      sourceArgument.kind !== 'REFERENCE' ||
+      sourceArgument.reference.kind !== 'FIELD'
+    ) {
+      throw error(
+        'INCOMPATIBLE_TYPES',
+        `${node.functionName} expects a direct field reference as its first argument.`,
+        sourceArgument,
+      );
+    }
+
+    if (node.functionName === 'valueAt') {
+      requireType({
+        actual: argumentTypes[1],
+        expected: 'TEXT',
+        node: node.arguments[1],
+      });
+      if (
+        node.arguments[1].kind !== 'LITERAL' ||
+        node.arguments[1].value.type !== 'TEXT'
+      ) {
+        throw error(
+          'INCOMPATIBLE_TYPES',
+          'valueAt expects a literal ISO timestamp as its second argument.',
+          node.arguments[1],
+        );
+      }
+    }
+
+    return {
+      type: argumentTypes[0].type,
+      nullable: true,
+    };
+  }
+
   if (node.functionName === 'if') {
     if (argumentTypes.length !== 3) {
       throw error(

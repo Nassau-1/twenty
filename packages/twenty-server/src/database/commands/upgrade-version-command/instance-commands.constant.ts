@@ -132,6 +132,7 @@ import { AddChannelWebhookSubscriptionExternalIdIndexesFastInstanceCommand } fro
 import { AddIsHiddenToAgentMessageFastInstanceCommand } from './2-25/2-25-instance-command-fast-1785230296000-add-is-hidden-to-agent-message';
 import { AddConnectedAccountHandleProviderIndexFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-26/2-26-instance-command-fast-1785420705255-add-connected-account-handle-provider-index';
 import { AddFormulaMetadataFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-26/2-26-instance-command-fast-1785434417760-add-formula-metadata';
+import { AddFormulaFieldHistoryFastInstanceCommand } from 'src/database/commands/upgrade-version-command/2-26/2-26-instance-command-fast-1785434417770-add-formula-field-history';
 
 export const INSTANCE_COMMANDS = [
   AddViewFieldGroupIdIndexOnViewFieldFastInstanceCommand,
@@ -266,4 +267,5 @@ export const INSTANCE_COMMANDS = [
   AddIsHiddenToAgentMessageFastInstanceCommand,
   AddConnectedAccountHandleProviderIndexFastInstanceCommand,
   AddFormulaMetadataFastInstanceCommand,
+  AddFormulaFieldHistoryFastInstanceCommand,
 ];

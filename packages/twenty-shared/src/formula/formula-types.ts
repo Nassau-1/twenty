@@ -1,6 +1,6 @@
 export const FORMULA_EDITOR_DOCUMENT_VERSION = 1 as const;
 export const FORMULA_AST_VERSION = 1 as const;
-export const FORMULA_EVALUATOR_VERSION = '1.0.0' as const;
+export const FORMULA_EVALUATOR_VERSION = '1.1.0' as const;
 
 export type FormulaSourceSpan = {
   start: number;
@@ -140,6 +140,7 @@ export type FormulaDiagnosticCode =
   | 'EXPRESSION_TOO_DEEP'
   | 'EXPRESSION_TOO_LARGE'
   | 'FUNCTION_NOT_SUPPORTED'
+  | 'HISTORY_UNAVAILABLE'
   | 'INCOMPATIBLE_TYPES'
   | 'INVALID_CHARACTER'
   | 'INVALID_NUMBER'
@@ -219,6 +220,27 @@ export type FormulaValue =
 export type ResolveFormulaValue = (
   reference: FormulaReferenceNode['reference'],
 ) => FormulaValue | undefined;
+
+export type FormulaHistoricalFunctionName = 'previousValue' | 'valueAt';
+
+export type FormulaHistoricalValueRequest = {
+  functionName: FormulaHistoricalFunctionName;
+  reference: FormulaReferenceNode['reference'];
+  at?: string;
+};
+
+export type FormulaHistoricalValueResolution =
+  | {
+      status: 'available';
+      value: FormulaValue;
+    }
+  | {
+      status: 'unavailable';
+    };
+
+export type ResolveFormulaHistoricalValue = (
+  request: FormulaHistoricalValueRequest,
+) => FormulaHistoricalValueResolution;
 
 export type FormulaEvaluationLimits = {
   maxDepth: number;
