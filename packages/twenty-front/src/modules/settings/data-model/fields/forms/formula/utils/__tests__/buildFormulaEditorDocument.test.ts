@@ -1,5 +1,6 @@
 import {
   buildFormulaEditorDocument,
+  buildRelationCountFormulaEditorDocument,
   normalizeFormulaNumberLiteral,
 } from '@/settings/data-model/fields/forms/formula/utils/buildFormulaEditorDocument';
 
@@ -20,6 +21,26 @@ describe('buildFormulaEditorDocument', () => {
           fieldMetadataUniversalIdentifier: 'revenue-field-id',
           label: 'Annual Revenue',
           span: { start: 0, end: 14 },
+        },
+      ],
+    });
+  });
+
+  it('binds a relation count to its stable metadata identity', () => {
+    expect(
+      buildRelationCountFormulaEditorDocument({
+        relationFieldMetadataUniversalIdentifier: 'people-relation-id',
+        relationFieldLabel: 'People',
+      }),
+    ).toEqual({
+      version: 1,
+      source: 'count(People)',
+      references: [
+        {
+          kind: 'RELATION',
+          relationFieldMetadataUniversalIdentifier: 'people-relation-id',
+          label: 'People',
+          span: { start: 6, end: 12 },
         },
       ],
     });
