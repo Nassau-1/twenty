@@ -220,6 +220,39 @@ describe('FormulaApplicationService', () => {
     });
   });
 
+  it('previews a prospective Formula against an existing record without writing', async () => {
+    recordRepository.findOne.mockResolvedValue({
+      id: 'record-id',
+      revenue: 21,
+    });
+    globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
+
+    await expect(
+      service.previewFormula({
+        workspaceId: 'workspace-id',
+        objectMetadataId: 'object-id',
+        recordId: 'record-id',
+        document,
+      }),
+    ).resolves.toMatchObject({
+      recordId: 'record-id',
+      output: { type: 'NUMBER', nullable: false },
+      value: 42,
+      evaluatorVersion: expect.any(String),
+      instructionCount: expect.any(Number),
+    });
+
+    expect(recordRepository.update).not.toHaveBeenCalled();
+    expect(
+      formulaAuthorizationService.assertCanReadDependencies,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      dependencyFieldMetadataIds: ['revenue-id'],
+      dependencyObjectMetadataIds: [],
+    });
+  });
+
   it('returns a prospective plan without persisting the Formula', async () => {
     await expect(
       service.planFormula({
