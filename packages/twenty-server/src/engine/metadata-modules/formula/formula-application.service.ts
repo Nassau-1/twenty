@@ -581,6 +581,17 @@ export class FormulaApplicationService {
             throw new NotFoundException('Formula record was not found.');
           }
 
+          const updateMaterializedValue = async (value: number | null) => {
+            await repository
+              .createQueryBuilder('formulaRecord')
+              .update()
+              .set({
+                [outputField.name]: value,
+              } as unknown as QueryDeepPartialEntity<FormulaRecord>)
+              .where('id = :recordId', { recordId })
+              .execute();
+          };
+
           const resolveRelationCounts = async (): Promise<
             Map<string, number>
           > => {
@@ -619,9 +630,7 @@ export class FormulaApplicationService {
               if (
                 count > FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation
               ) {
-                await repository.update(recordId, {
-                  [outputField.name]: null,
-                } as unknown as QueryDeepPartialEntity<FormulaRecord>);
+                await updateMaterializedValue(null);
 
                 throw new FormulaRelationLimitExceededException(
                   `Formula relation count exceeds the ${FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation} record limit.`,
@@ -803,9 +812,7 @@ export class FormulaApplicationService {
           const value =
             evaluation.value.type === 'NULL' ? null : evaluation.value.value;
 
-          await repository.update(recordId, {
-            [outputField.name]: value,
-          } as unknown as QueryDeepPartialEntity<FormulaRecord>);
+          await updateMaterializedValue(value);
           const recordEffectiveAt =
             record.updatedAt instanceof Date
               ? record.updatedAt

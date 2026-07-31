@@ -92,9 +92,12 @@ describe('FormulaApplicationService', () => {
     update: jest.fn(),
   };
   const relationCountQueryBuilder = {
+    execute: jest.fn(),
     getRawOne: jest.fn(),
     leftJoin: jest.fn(),
     select: jest.fn(),
+    set: jest.fn(),
+    update: jest.fn(),
     where: jest.fn(),
   };
   const formulaHistoryService = {
@@ -140,7 +143,10 @@ describe('FormulaApplicationService', () => {
       relationCountQueryBuilder,
     );
     relationCountQueryBuilder.select.mockReturnValue(relationCountQueryBuilder);
+    relationCountQueryBuilder.set.mockReturnValue(relationCountQueryBuilder);
+    relationCountQueryBuilder.update.mockReturnValue(relationCountQueryBuilder);
     relationCountQueryBuilder.where.mockReturnValue(relationCountQueryBuilder);
+    relationCountQueryBuilder.execute.mockResolvedValue({});
     recordRepository.createQueryBuilder.mockReturnValue(
       relationCountQueryBuilder,
     );
@@ -356,9 +362,10 @@ describe('FormulaApplicationService', () => {
       evaluatorVersion: '1.2.0',
       instructionCount: 3,
     });
-    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+    expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
       formulaResult: 250,
     });
+    expect(recordRepository.update).not.toHaveBeenCalled();
     expect(
       formulaHistoryService.appendFormulaMaterialization,
     ).toHaveBeenCalledWith(
@@ -444,9 +451,10 @@ describe('FormulaApplicationService', () => {
       recordId: 'record-id',
       fieldMetadataId: 'revenue-id',
     });
-    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+    expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
       formulaResult: 200,
     });
+    expect(recordRepository.update).not.toHaveBeenCalled();
   });
 
   it('materializes a bounded one-hop relation count', async () => {
@@ -521,9 +529,10 @@ describe('FormulaApplicationService', () => {
       'formulaRecord.people',
       'formulaRelatedRecord',
     );
-    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+    expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
       formulaResult: 3,
     });
+    expect(recordRepository.update).not.toHaveBeenCalled();
     expect(
       formulaAuthorizationService.assertCanReadDependencies,
     ).toHaveBeenCalledWith({
@@ -533,7 +542,7 @@ describe('FormulaApplicationService', () => {
       dependencyObjectMetadataIds: ['person-object-id'],
     });
 
-    recordRepository.update.mockClear();
+    relationCountQueryBuilder.set.mockClear();
     relationCountQueryBuilder.getRawOne.mockResolvedValue({ count: '10001' });
     await expect(
       service.recomputeRecord({
@@ -542,8 +551,9 @@ describe('FormulaApplicationService', () => {
         recordId: 'record-id',
       }),
     ).rejects.toThrow('Formula relation count exceeds the 10000 record limit.');
-    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+    expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
       formulaResult: null,
     });
+    expect(recordRepository.update).not.toHaveBeenCalled();
   });
 });
