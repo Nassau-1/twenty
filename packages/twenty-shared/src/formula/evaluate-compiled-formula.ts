@@ -14,6 +14,7 @@ import {
 export const DEFAULT_FORMULA_EVALUATION_LIMITS: FormulaEvaluationLimits = {
   maxDepth: 64,
   maxInstructions: 1_024,
+  maxRelationItems: 10_000,
   maxTextLength: 10_000,
 };
 
@@ -256,6 +257,33 @@ export const evaluateCompiledFormula = ({
           node,
         );
       case 'CALL': {
+        if (node.functionName === 'count') {
+          const relation = evaluate(node.arguments[0], depth + 1);
+
+          if (relation.type !== 'RELATION') {
+            throw evaluationError(
+              'EVALUATION_ERROR',
+              'count requires a resolved relation.',
+              node,
+            );
+          }
+          if (!Number.isSafeInteger(relation.value) || relation.value < 0) {
+            throw evaluationError(
+              'EVALUATION_ERROR',
+              'Relation count is invalid.',
+              node,
+            );
+          }
+          if (relation.value > limits.maxRelationItems) {
+            throw evaluationError(
+              'EVALUATION_LIMIT_EXCEEDED',
+              'Relation count exceeds the configured limit.',
+              node,
+            );
+          }
+
+          return { type: 'NUMBER', value: relation.value };
+        }
         if (
           node.functionName === 'previousValue' ||
           node.functionName === 'valueAt'

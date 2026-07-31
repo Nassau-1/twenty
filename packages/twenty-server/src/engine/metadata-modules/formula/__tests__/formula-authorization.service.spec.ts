@@ -38,12 +38,14 @@ describe('FormulaAuthorizationService', () => {
   const runAs = (
     authContext: WorkspaceAuthContext,
     dependencyFieldMetadataIds = ['source-field-id'],
+    dependencyObjectMetadataIds: string[] = [],
   ) =>
     withWorkspaceAuthContext(authContext, () =>
       service.assertCanReadDependencies({
         workspaceId: 'workspace-id',
         objectMetadataId: 'object-id',
         dependencyFieldMetadataIds,
+        dependencyObjectMetadataIds,
       }),
     );
 
@@ -92,6 +94,65 @@ describe('FormulaAuthorizationService', () => {
     ).rejects.toEqual(
       new ForbiddenException('Formula dependency is not authorized.'),
     );
+  });
+
+  it('rejects a relation whose target object is unreadable', async () => {
+    await expect(
+      runAs(
+        {
+          type: 'user',
+          workspace,
+          userWorkspaceId: 'user-workspace-id',
+        } as WorkspaceAuthContext,
+        ['source-field-id'],
+        ['person-object-id'],
+      ),
+    ).rejects.toEqual(
+      new ForbiddenException('Formula dependency is not authorized.'),
+    );
+  });
+
+  it('authorizes an unrestricted relation target and rejects row-filtered targets', async () => {
+    const authContext = {
+      type: 'user',
+      workspace,
+      userWorkspaceId: 'user-workspace-id',
+    } as WorkspaceAuthContext;
+
+    workspaceCacheService.getOrRecompute.mockResolvedValue({
+      apiKeyRoleMap: {},
+      rolesPermissions: {
+        'role-id': {
+          'object-id': readableObjectPermissions,
+          'person-object-id': {
+            ...readableObjectPermissions,
+            restrictedFields: {},
+          },
+        },
+      },
+      userWorkspaceRoleMap: { 'user-workspace-id': 'role-id' },
+    });
+    await expect(
+      runAs(authContext, ['source-field-id'], ['person-object-id']),
+    ).resolves.toBeUndefined();
+
+    workspaceCacheService.getOrRecompute.mockResolvedValue({
+      apiKeyRoleMap: {},
+      rolesPermissions: {
+        'role-id': {
+          'object-id': readableObjectPermissions,
+          'person-object-id': {
+            ...readableObjectPermissions,
+            restrictedFields: {},
+            rowLevelPermissionPredicates: [{ id: 'predicate-id' }],
+          },
+        },
+      },
+      userWorkspaceRoleMap: { 'user-workspace-id': 'role-id' },
+    });
+    await expect(
+      runAs(authContext, ['source-field-id'], ['person-object-id']),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('rejects a cross-workspace request before loading permissions', async () => {

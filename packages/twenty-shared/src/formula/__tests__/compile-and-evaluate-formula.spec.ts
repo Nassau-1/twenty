@@ -147,6 +147,116 @@ describe('compileFormulaEditorDocument and evaluateCompiledFormula', () => {
     });
   });
 
+  it('compiles and evaluates a bounded one-hop relation count', () => {
+    const relationDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'count(People)',
+      references: [
+        {
+          kind: 'RELATION',
+          relationFieldMetadataUniversalIdentifier: 'people-relation',
+          label: 'People',
+          span: { start: 6, end: 12 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: relationDocument,
+      resolveReference: (reference) =>
+        reference.kind === 'RELATION'
+          ? { status: 'success', type: 'RELATION', nullable: false }
+          : { status: 'error', reason: 'NOT_FOUND' },
+    });
+
+    expect(compileResult).toMatchObject({
+      status: 'success',
+      compiledFormula: {
+        output: { type: 'NUMBER', nullable: false },
+        dependencies: [
+          {
+            kind: 'RELATION',
+            relationFieldMetadataUniversalIdentifier: 'people-relation',
+          },
+        ],
+      },
+    });
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected relation Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: () => ({ type: 'RELATION', value: 3 }),
+      }),
+    ).toEqual({
+      status: 'success',
+      value: { type: 'NUMBER', value: 3 },
+      evaluatorVersion: FORMULA_EVALUATOR_VERSION,
+      instructionCount: 2,
+    });
+  });
+
+  it('rejects a bare relation and relation counts above the runtime cap', () => {
+    const relationDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'People',
+      references: [
+        {
+          kind: 'RELATION',
+          relationFieldMetadataUniversalIdentifier: 'people-relation',
+          label: 'People',
+          span: { start: 0, end: 6 },
+        },
+      ],
+    };
+    const bareRelation = compileFormulaEditorDocument({
+      document: relationDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'RELATION',
+        nullable: false,
+      }),
+    });
+
+    expect(bareRelation).toMatchObject({
+      status: 'error',
+      diagnostics: [{ code: 'INCOMPATIBLE_TYPES' }],
+    });
+
+    const countedRelation = compileFormulaEditorDocument({
+      document: {
+        ...relationDocument,
+        source: 'count(People)',
+        references: [
+          {
+            ...relationDocument.references[0],
+            span: { start: 6, end: 12 },
+          },
+        ],
+      },
+      resolveReference: () => ({
+        status: 'success',
+        type: 'RELATION',
+        nullable: false,
+      }),
+    });
+    if (countedRelation.status !== 'success') {
+      throw new Error('Expected relation Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: countedRelation.compiledFormula,
+        resolveValue: () => ({ type: 'RELATION', value: 11 }),
+        limits: { maxRelationItems: 10 },
+      }),
+    ).toMatchObject({
+      status: 'error',
+      diagnostics: [{ code: 'EVALUATION_LIMIT_EXCEEDED' }],
+    });
+  });
+
   it('rejects an unauthorized dependency during compilation', () => {
     const result = compileFormulaEditorDocument({
       document,
@@ -238,17 +348,11 @@ describe('compileFormulaEditorDocument and evaluateCompiledFormula', () => {
   it('keeps reference resolution keyed by stable metadata identity', () => {
     const compileResult = compileFormulaEditorDocument({
       document,
-      resolveReference: (reference) => ({
-        status:
-          reference.kind === 'FIELD' &&
-          reference.fieldMetadataUniversalIdentifier === 'revenue-field'
-            ? 'success'
-            : 'error',
-        ...(reference.kind === 'FIELD' &&
+      resolveReference: (reference) =>
+        reference.kind === 'FIELD' &&
         reference.fieldMetadataUniversalIdentifier === 'revenue-field'
-          ? { type: 'NUMBER' as const, nullable: false }
-          : { reason: 'NOT_FOUND' as const }),
-      }),
+          ? { status: 'success', type: 'NUMBER', nullable: false }
+          : { status: 'error', reason: 'NOT_FOUND' },
     });
     if (compileResult.status !== 'success') {
       throw new Error('Expected Formula compilation to succeed.');

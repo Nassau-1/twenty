@@ -1,6 +1,6 @@
 export const FORMULA_EDITOR_DOCUMENT_VERSION = 1 as const;
 export const FORMULA_AST_VERSION = 1 as const;
-export const FORMULA_EVALUATOR_VERSION = '1.1.0' as const;
+export const FORMULA_EVALUATOR_VERSION = '1.2.0' as const;
 
 export type FormulaSourceSpan = {
   start: number;
@@ -168,9 +168,14 @@ export type FormulaParseResult =
       diagnostics: FormulaDiagnostic[];
     };
 
-export type FormulaValueType = 'BOOLEAN' | 'NULL' | 'NUMBER' | 'TEXT';
+export type FormulaValueType =
+  | 'BOOLEAN'
+  | 'NULL'
+  | 'NUMBER'
+  | 'RELATION'
+  | 'TEXT';
 
-export type FormulaOutputType = Exclude<FormulaValueType, 'NULL'>;
+export type FormulaOutputType = Exclude<FormulaValueType, 'NULL' | 'RELATION'>;
 
 export type FormulaType = {
   type: FormulaValueType;
@@ -180,7 +185,7 @@ export type FormulaType = {
 export type FormulaReferenceResolution =
   | {
       status: 'success';
-      type: FormulaOutputType;
+      type: FormulaOutputType | 'RELATION';
       nullable: boolean;
     }
   | {
@@ -215,6 +220,7 @@ export type FormulaValue =
   | { type: 'BOOLEAN'; value: boolean }
   | { type: 'NULL'; value: null }
   | { type: 'NUMBER'; value: number }
+  | { type: 'RELATION'; value: number }
   | { type: 'TEXT'; value: string };
 
 export type ResolveFormulaValue = (
@@ -245,6 +251,7 @@ export type ResolveFormulaHistoricalValue = (
 export type FormulaEvaluationLimits = {
   maxDepth: number;
   maxInstructions: number;
+  maxRelationItems: number;
   maxTextLength: number;
 };
 

@@ -3,6 +3,8 @@ export const FORMULA_SECURITY_LIMITS = {
   maxDefinitionsPerObject: 100,
   maxDefinitionsPerWorkspace: 1_000,
   maxFormulaChainDepth: 3,
+  maxRelationDependenciesPerFormula: 8,
+  maxRelationRecordsPerEvaluation: 10_000,
 } as const;
 
 export type FormulaDependencyAccess = {

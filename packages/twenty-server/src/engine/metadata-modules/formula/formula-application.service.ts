@@ -186,6 +186,22 @@ export class FormulaApplicationService {
         `A Formula cannot have more than ${FORMULA_SECURITY_LIMITS.maxDependenciesPerFormula} dependencies.`,
       );
     }
+    const relationDependencyCount = new Set(
+      document.references.flatMap((reference) =>
+        reference.kind === 'RELATION'
+          ? [reference.relationFieldMetadataUniversalIdentifier]
+          : [],
+      ),
+    ).size;
+
+    if (
+      relationDependencyCount >
+      FORMULA_SECURITY_LIMITS.maxRelationDependenciesPerFormula
+    ) {
+      throw new BadRequestException(
+        `A Formula cannot have more than ${FORMULA_SECURITY_LIMITS.maxRelationDependenciesPerFormula} relation dependencies.`,
+      );
+    }
 
     const [objectMetadata, fields, objectFormulaCount, workspaceFormulaCount] =
       await Promise.all([
@@ -240,9 +256,26 @@ export class FormulaApplicationService {
     );
 
     for (const reference of document.references) {
+      if (reference.kind === 'RELATION') {
+        const relationField = fieldsByUniversalIdentifier.get(
+          reference.relationFieldMetadataUniversalIdentifier,
+        );
+
+        if (
+          relationField === undefined ||
+          relationField.type !== FieldMetadataType.RELATION ||
+          relationField.relationTargetObjectMetadataId === null ||
+          relationField.relationTargetObjectMetadataId === undefined
+        ) {
+          throw new BadRequestException(
+            'Every Formula relation must resolve inside the selected object.',
+          );
+        }
+        continue;
+      }
       if (reference.kind !== 'FIELD') {
         throw new BadRequestException(
-          'The first Formula slice supports direct field references only.',
+          'The current Formula slice supports direct field and relation references only.',
         );
       }
 
@@ -270,6 +303,21 @@ export class FormulaApplicationService {
     const compileResult = compileFormulaEditorDocument({
       document,
       resolveReference: (reference) => {
+        if (reference.kind === 'RELATION') {
+          const relationField = fieldsByUniversalIdentifier.get(
+            reference.relationFieldMetadataUniversalIdentifier,
+          );
+
+          return relationField?.type === FieldMetadataType.RELATION &&
+            relationField.relationTargetObjectMetadataId !== null &&
+            relationField.relationTargetObjectMetadataId !== undefined
+            ? {
+                status: 'success',
+                type: 'RELATION',
+                nullable: false,
+              }
+            : { status: 'error', reason: 'NOT_FOUND' };
+        }
         if (reference.kind !== 'FIELD') {
           return { status: 'error', reason: 'NOT_FOUND' };
         }
@@ -314,6 +362,24 @@ export class FormulaApplicationService {
       objectMetadataId,
       dependencyFieldMetadataIds:
         dependencyPlan.directDependencyFieldMetadataIds,
+      dependencyObjectMetadataIds: [
+        ...new Set(
+          document.references.flatMap((reference) => {
+            if (reference.kind !== 'RELATION') {
+              return [];
+            }
+
+            const targetObjectMetadataId = fieldsByUniversalIdentifier.get(
+              reference.relationFieldMetadataUniversalIdentifier,
+            )?.relationTargetObjectMetadataId;
+
+            return targetObjectMetadataId === null ||
+              targetObjectMetadataId === undefined
+              ? []
+              : [targetObjectMetadataId];
+          }),
+        ),
+      ],
     });
 
     return {
@@ -427,6 +493,54 @@ export class FormulaApplicationService {
           throw new NotFoundException('Formula record was not found.');
         }
 
+        const relationCounts = new Map<string, number>();
+
+        for (const dependency of compiledFormula.dependencies) {
+          if (dependency.kind !== 'RELATION') {
+            continue;
+          }
+
+          const relationField = fieldsByUniversalIdentifier.get(
+            dependency.relationFieldMetadataUniversalIdentifier,
+          );
+
+          if (
+            relationField === undefined ||
+            relationField.type !== FieldMetadataType.RELATION
+          ) {
+            throw new BadRequestException(
+              'Formula relation metadata could not be resolved.',
+            );
+          }
+
+          const countResult = await repository
+            .createQueryBuilder('formulaRecord')
+            .leftJoin(
+              `formulaRecord.${relationField.name}`,
+              'formulaRelatedRecord',
+            )
+            .select('COUNT(DISTINCT formulaRelatedRecord.id)', 'count')
+            .where('formulaRecord.id = :recordId', { recordId })
+            .getRawOne<{ count: string | number }>();
+          const count = Number(countResult?.count ?? 0);
+
+          if (!Number.isSafeInteger(count) || count < 0) {
+            throw new BadRequestException(
+              'Formula relation count could not be resolved safely.',
+            );
+          }
+          if (count > FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation) {
+            throw new BadRequestException(
+              `Formula relation count exceeds the ${FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation} record limit.`,
+            );
+          }
+
+          relationCounts.set(
+            dependency.relationFieldMetadataUniversalIdentifier,
+            count,
+          );
+        }
+
         const historicalResolutions = new Map<
           string,
           FormulaHistoricalValueResolution
@@ -486,6 +600,15 @@ export class FormulaApplicationService {
         const evaluation = evaluateCompiledFormula({
           compiledFormula,
           resolveValue: (reference): FormulaValue | undefined => {
+            if (reference.kind === 'RELATION') {
+              const count = relationCounts.get(
+                reference.relationFieldMetadataUniversalIdentifier,
+              );
+
+              return count === undefined
+                ? undefined
+                : { type: 'RELATION', value: count };
+            }
             if (reference.kind !== 'FIELD') {
               return undefined;
             }
@@ -524,6 +647,10 @@ export class FormulaApplicationService {
                 }),
               ) ?? { status: 'unavailable' }
             );
+          },
+          limits: {
+            maxRelationItems:
+              FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation,
           },
         });
 

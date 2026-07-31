@@ -53,17 +53,26 @@ describe('FormulaReactiveService', () => {
       {
         id: 'source-field-id',
         name: 'formulaSource',
+        objectMetadataId: 'object-id',
         universalIdentifier: 'source-field-uid',
       },
       {
         id: 'name-field-id',
         name: 'name',
+        objectMetadataId: 'object-id',
         universalIdentifier: 'name-field-uid',
+      },
+      {
+        id: 'people-relation-id',
+        name: 'people',
+        objectMetadataId: 'object-id',
+        universalIdentifier: 'people-relation-uid',
       },
     ]);
     formulaDefinitionRepository.find.mockResolvedValue([
       {
         id: 'formula-id',
+        objectMetadataId: 'object-id',
         outputFieldMetadataId: 'formula-output-id',
         activeVersionId: 'version-id',
         versions: [
@@ -98,6 +107,7 @@ describe('FormulaReactiveService', () => {
       },
       {
         id: 'unrelated-formula-id',
+        objectMetadataId: 'object-id',
         outputFieldMetadataId: 'unrelated-output-id',
         activeVersionId: 'unrelated-version-id',
         versions: [
@@ -123,6 +133,42 @@ describe('FormulaReactiveService', () => {
           },
         ],
       },
+      {
+        id: 'relation-formula-id',
+        objectMetadataId: 'object-id',
+        outputFieldMetadataId: 'relation-output-id',
+        activeVersionId: 'relation-version-id',
+        versions: [
+          {
+            id: 'relation-version-id',
+            ast: {
+              version: 1,
+              root: {
+                kind: 'CALL',
+                functionName: 'count',
+                arguments: [
+                  {
+                    kind: 'REFERENCE',
+                    reference: {
+                      kind: 'RELATION',
+                      relationFieldMetadataUniversalIdentifier:
+                        'people-relation-uid',
+                    },
+                    span: { start: 6, end: 12 },
+                  },
+                ],
+                span: { start: 0, end: 13 },
+              },
+            },
+            dependencies: [
+              {
+                kind: 'RELATION',
+                relationFieldMetadataUniversalIdentifier: 'people-relation-uid',
+              },
+            ],
+          },
+        ],
+      },
     ]);
     formulaApplicationService.recomputeRecord.mockResolvedValue({});
     formulaHistoryService.captureFieldUpdates.mockResolvedValue(2);
@@ -141,8 +187,125 @@ describe('FormulaReactiveService', () => {
     expect(formulaHistoryService.captureFieldUpdates).toHaveBeenCalledWith(
       batch,
       new Set(['source-field-id']),
-      new Set(['formula-output-id', 'unrelated-output-id']),
+      new Set([
+        'formula-output-id',
+        'unrelated-output-id',
+        'relation-output-id',
+      ]),
     );
+  });
+
+  it('recomputes a relation aggregate when its owner relation changes', async () => {
+    const relationBatch = {
+      ...batch,
+      events: [
+        {
+          ...batch.events[0],
+          properties: {
+            ...batch.events[0].properties,
+            updatedFields: ['people'],
+          },
+        },
+      ],
+    };
+
+    await expect(
+      service.recomputeFromUpdateBatch(relationBatch),
+    ).resolves.toEqual({ recomputedCount: 1 });
+    expect(formulaApplicationService.recomputeRecord).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      formulaDefinitionId: 'relation-formula-id',
+      recordId: 'record-id',
+    });
+  });
+
+  it('recomputes both owners exactly once when an inverse relation moves', async () => {
+    fieldMetadataRepository.find.mockResolvedValue([
+      {
+        id: 'company-field-id',
+        name: 'company',
+        objectMetadataId: 'person-object-id',
+        universalIdentifier: 'company-relation-uid',
+      },
+      {
+        id: 'people-relation-id',
+        name: 'people',
+        objectMetadataId: 'object-id',
+        relationTargetFieldMetadataId: 'company-field-id',
+        relationTargetObjectMetadataId: 'person-object-id',
+        universalIdentifier: 'people-relation-uid',
+      },
+    ]);
+    formulaDefinitionRepository.find.mockResolvedValue([
+      {
+        id: 'relation-formula-id',
+        objectMetadataId: 'object-id',
+        outputFieldMetadataId: 'relation-output-id',
+        activeVersionId: 'relation-version-id',
+        versions: [
+          {
+            id: 'relation-version-id',
+            ast: {
+              version: 1,
+              root: {
+                kind: 'CALL',
+                functionName: 'count',
+                arguments: [],
+                span: { start: 0, end: 13 },
+              },
+            },
+            dependencies: [
+              {
+                kind: 'RELATION',
+                relationFieldMetadataUniversalIdentifier: 'people-relation-uid',
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    const inverseBatch = {
+      ...batch,
+      objectMetadata: { id: 'person-object-id' },
+      events: [
+        {
+          recordId: 'person-record-id',
+          properties: {
+            updatedFields: ['company', 'companyId'],
+            before: { companyId: 'old-company-id' },
+            after: { companyId: 'new-company-id' },
+            diff: {
+              company: {
+                before: { id: 'old-company-id' },
+                after: { id: 'new-company-id' },
+              },
+            },
+          },
+        },
+      ],
+    } as unknown as WorkspaceEventBatch<
+      ObjectRecordUpdateEvent<Record<string, unknown>>
+    >;
+
+    await expect(
+      service.recomputeFromUpdateBatch(inverseBatch),
+    ).resolves.toEqual({ recomputedCount: 2 });
+    expect(formulaApplicationService.recomputeRecord.mock.calls).toEqual([
+      [
+        {
+          workspaceId: 'workspace-id',
+          formulaDefinitionId: 'relation-formula-id',
+          recordId: 'new-company-id',
+        },
+      ],
+      [
+        {
+          workspaceId: 'workspace-id',
+          formulaDefinitionId: 'relation-formula-id',
+          recordId: 'old-company-id',
+        },
+      ],
+    ]);
   });
 
   it('does not recompute when the update touches no Formula dependency', async () => {

@@ -53,6 +53,25 @@ const collectHistoricalFieldUniversalIdentifiers = (
   return fieldUniversalIdentifiers;
 };
 
+const collectRelatedRecordIds = (value: unknown): string[] => {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(collectRelatedRecordIds);
+  }
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof value.id === 'string'
+  ) {
+    return [value.id];
+  }
+
+  return [];
+};
+
 @Injectable()
 export class FormulaReactiveService {
   constructor(
@@ -71,18 +90,34 @@ export class FormulaReactiveService {
   ): Promise<{ recomputedCount: number }> {
     const [fields, definitions] = await Promise.all([
       this.fieldMetadataRepository.find({
-        where: {
-          workspaceId: batch.workspaceId,
-          objectMetadataId: batch.objectMetadata.id,
-        },
+        where: [
+          {
+            workspaceId: batch.workspaceId,
+            objectMetadataId: batch.objectMetadata.id,
+          },
+          {
+            workspaceId: batch.workspaceId,
+            relationTargetObjectMetadataId: batch.objectMetadata.id,
+          },
+        ],
       }),
       this.formulaDefinitionRepository.find(batch.workspaceId, {
-        where: { objectMetadataId: batch.objectMetadata.id },
         relations: { versions: true },
       }),
     ]);
+    const currentObjectFields = fields.filter(
+      (field) => field.objectMetadataId === batch.objectMetadata.id,
+    );
+    const reverseRelationFields = fields.filter(
+      (field) =>
+        field.objectMetadataId !== batch.objectMetadata.id &&
+        field.relationTargetObjectMetadataId === batch.objectMetadata.id,
+    );
     const fieldUniversalIdentifierByName = new Map(
-      fields.map((field) => [field.name, field.universalIdentifier]),
+      currentObjectFields.map((field) => [
+        field.name,
+        field.universalIdentifier,
+      ]),
     );
     const activeDefinitions = definitions
       .flatMap((definition) => {
@@ -98,13 +133,22 @@ export class FormulaReactiveService {
         left.definition.id.localeCompare(right.definition.id),
       );
     const formulaOutputFieldMetadataIds = new Set(
-      definitions.map((definition) => definition.outputFieldMetadataId),
+      definitions
+        .filter(
+          (definition) =>
+            definition.objectMetadataId === batch.objectMetadata.id,
+        )
+        .map((definition) => definition.outputFieldMetadataId),
     );
     const fieldMetadataIdByUniversalIdentifier = new Map(
-      fields.map((field) => [field.universalIdentifier, field.id]),
+      currentObjectFields.map((field) => [field.universalIdentifier, field.id]),
     );
     const trackedFieldMetadataIds = new Set(
       activeDefinitions
+        .filter(
+          ({ definition }) =>
+            definition.objectMetadataId === batch.objectMetadata.id,
+        )
         .flatMap(({ activeVersion }) => [
           ...collectHistoricalFieldUniversalIdentifiers(activeVersion.ast.root),
         ])
@@ -122,7 +166,19 @@ export class FormulaReactiveService {
       formulaOutputFieldMetadataIds,
     );
 
-    let recomputedCount = 0;
+    const recomputeTargets = new Map<
+      string,
+      { formulaDefinitionId: string; recordId: string }
+    >();
+    const addRecomputeTarget = (
+      formulaDefinitionId: string,
+      recordId: string,
+    ) => {
+      recomputeTargets.set(`${formulaDefinitionId}:${recordId}`, {
+        formulaDefinitionId,
+        recordId,
+      });
+    };
 
     for (const event of batch.events) {
       const changedFieldUniversalIdentifiers = new Set(
@@ -139,27 +195,97 @@ export class FormulaReactiveService {
       }
 
       for (const { definition, activeVersion } of activeDefinitions) {
+        if (definition.objectMetadataId !== batch.objectMetadata.id) {
+          continue;
+        }
         const dependsOnChangedField = activeVersion.dependencies.some(
-          (dependency) =>
-            dependency.kind === 'FIELD' &&
-            changedFieldUniversalIdentifiers.has(
-              dependency.fieldMetadataUniversalIdentifier,
-            ),
+          (dependency) => {
+            const dependencyUniversalIdentifier =
+              dependency.kind === 'FIELD'
+                ? dependency.fieldMetadataUniversalIdentifier
+                : dependency.kind === 'RELATION'
+                  ? dependency.relationFieldMetadataUniversalIdentifier
+                  : null;
+
+            return (
+              dependencyUniversalIdentifier !== null &&
+              changedFieldUniversalIdentifiers.has(
+                dependencyUniversalIdentifier,
+              )
+            );
+          },
         );
 
         if (!dependsOnChangedField) {
           continue;
         }
 
-        await this.formulaApplicationService.recomputeRecord({
-          workspaceId: batch.workspaceId,
-          formulaDefinitionId: definition.id,
-          recordId: event.recordId,
-        });
-        recomputedCount += 1;
+        addRecomputeTarget(definition.id, event.recordId);
+      }
+
+      const eventDiff = (event.properties.diff ?? {}) as Record<
+        string,
+        { before?: unknown; after?: unknown } | undefined
+      >;
+
+      for (const relationField of reverseRelationFields) {
+        if (relationField.relationTargetFieldMetadataId === null) {
+          continue;
+        }
+
+        const inverseField = currentObjectFields.find(
+          (field) => field.id === relationField.relationTargetFieldMetadataId,
+        );
+
+        if (
+          inverseField === undefined ||
+          !event.properties.updatedFields.includes(inverseField.name)
+        ) {
+          continue;
+        }
+
+        const relationChange = eventDiff[inverseField.name];
+        const affectedOwnerRecordIds = new Set([
+          ...collectRelatedRecordIds(relationChange?.before),
+          ...collectRelatedRecordIds(relationChange?.after),
+        ]);
+
+        for (const { definition, activeVersion } of activeDefinitions) {
+          if (definition.objectMetadataId !== relationField.objectMetadataId) {
+            continue;
+          }
+          if (
+            !activeVersion.dependencies.some(
+              (dependency) =>
+                dependency.kind === 'RELATION' &&
+                dependency.relationFieldMetadataUniversalIdentifier ===
+                  relationField.universalIdentifier,
+            )
+          ) {
+            continue;
+          }
+
+          for (const ownerRecordId of affectedOwnerRecordIds) {
+            addRecomputeTarget(definition.id, ownerRecordId);
+          }
+        }
       }
     }
 
-    return { recomputedCount };
+    for (const { formulaDefinitionId, recordId } of [
+      ...recomputeTargets.values(),
+    ].sort((left, right) =>
+      `${left.formulaDefinitionId}:${left.recordId}`.localeCompare(
+        `${right.formulaDefinitionId}:${right.recordId}`,
+      ),
+    )) {
+      await this.formulaApplicationService.recomputeRecord({
+        workspaceId: batch.workspaceId,
+        formulaDefinitionId,
+        recordId,
+      });
+    }
+
+    return { recomputedCount: recomputeTargets.size };
   }
 }

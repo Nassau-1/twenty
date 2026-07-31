@@ -21,6 +21,7 @@ type FormulaPermissionDefinition = {
 type FormulaPermissionField = {
   id: string;
   objectMetadataId: string;
+  relationTargetObjectMetadataId?: string | null;
   universalIdentifier: string;
 };
 
@@ -75,6 +76,40 @@ export const applyFormulaResultReadRestrictions = ({
     let hasUnsupportedDependency = activeVersion === undefined;
 
     for (const dependency of activeVersion?.dependencies ?? []) {
+      if (dependency.kind === 'RELATION') {
+        const relationField = fieldsByUniversalIdentifier.get(
+          dependency.relationFieldMetadataUniversalIdentifier,
+        );
+
+        if (
+          relationField === undefined ||
+          relationField.objectMetadataId !== definition.objectMetadataId ||
+          relationField.relationTargetObjectMetadataId === null ||
+          relationField.relationTargetObjectMetadataId === undefined
+        ) {
+          hasUnsupportedDependency = true;
+          continue;
+        }
+
+        const sourceObjectPermissions =
+          objectsPermissions[relationField.objectMetadataId];
+        const targetObjectPermissions =
+          objectsPermissions[relationField.relationTargetObjectMetadataId];
+
+        dependencies.push({
+          canReadObjectRecords:
+            sourceObjectPermissions?.canReadObjectRecords === true &&
+            targetObjectPermissions?.canReadObjectRecords === true &&
+            targetObjectPermissions.rowLevelPermissionPredicates.length === 0 &&
+            targetObjectPermissions.rowLevelPermissionPredicateGroups.length ===
+              0,
+          canReadFieldValue:
+            sourceObjectPermissions?.restrictedFields[relationField.id]
+              ?.canRead !== false,
+        });
+        continue;
+      }
+
       if (dependency.kind === 'FIELD') {
         const field = fieldsByUniversalIdentifier.get(
           dependency.fieldMetadataUniversalIdentifier,
