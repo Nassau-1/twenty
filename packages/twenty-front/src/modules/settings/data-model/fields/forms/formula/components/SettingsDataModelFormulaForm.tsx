@@ -1,5 +1,5 @@
 import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataItem';
-import { useRecordsForSelect } from '@/object-record/select/hooks/useRecordsForSelect';
+import { FormSingleRecordPicker } from '@/object-record/record-field/ui/form-types/components/FormSingleRecordPicker';
 import {
   previewFormulaMetadata,
   type FormulaPreviewApiResult,
@@ -29,7 +29,6 @@ import {
 import { Section } from 'twenty-ui/layout';
 import { themeCssVariables } from 'twenty-ui/theme-constants';
 import { H2Title } from 'twenty-ui/typography';
-import { Select } from '@/ui/input/components/Select';
 import { FieldMetadataType } from 'twenty-shared/types';
 
 const FORMULA_LANGUAGE_ID = 'zo-formula';
@@ -221,18 +220,6 @@ export const SettingsDataModelFormulaForm = ({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
 
-  const {
-    recordsToSelect,
-    selectedRecords,
-    loading: recordsLoading,
-  } = useRecordsForSelect({
-    searchFilterText: '',
-    selectedIds: selectedRecordId === '' ? [] : [selectedRecordId],
-    limit: 20,
-    objectNameSingular,
-    allowRequestsToTwentyIcons: false,
-  });
-
   useEffect(() => {
     return () => completionProviderRef.current?.dispose();
   }, []);
@@ -257,11 +244,6 @@ export const SettingsDataModelFormulaForm = ({
       ),
     [normalizedSearch],
   );
-  const previewRecords = useMemo(
-    () => [...selectedRecords, ...recordsToSelect],
-    [recordsToSelect, selectedRecords],
-  );
-
   const insertSource = (source: string, cursorOffset = 0) => {
     const formulaEditor = editorRef.current;
     const selection = formulaEditor?.getSelection();
@@ -547,19 +529,13 @@ export const SettingsDataModelFormulaForm = ({
         </StyledHelper>
       </StyledEditorLayout>
       <StyledPreview>
-        <Select<string>
-          dropdownId="formula-preview-record"
-          fullWidth
-          withSearchInput
+        <FormSingleRecordPicker
+          testId="formula-preview-record"
           label={t`Preview record`}
-          value={selectedRecordId}
-          onChange={setSelectedRecordId}
-          emptyOption={{ label: t`Select a record`, value: '' }}
-          options={previewRecords.map((record) => ({
-            label: record.name,
-            value: record.id,
-          }))}
-          disabled={recordsLoading}
+          defaultValue={selectedRecordId === '' ? null : selectedRecordId}
+          onChange={(recordId) => setSelectedRecordId(recordId ?? '')}
+          onClear={() => setSelectedRecordId('')}
+          objectNameSingulars={[objectNameSingular]}
         />
         <Button
           title={t`Preview`}
