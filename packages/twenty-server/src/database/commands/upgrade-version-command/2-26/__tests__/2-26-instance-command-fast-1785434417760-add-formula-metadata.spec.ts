@@ -16,13 +16,13 @@ describe('AddFormulaMetadataFastInstanceCommand', () => {
 
     expect(query).toHaveBeenCalledTimes(5);
     expect(query.mock.calls[0][0]).toContain(
-      'CREATE TABLE "core"."formulaDefinition"',
+      'CREATE TABLE IF NOT EXISTS "core"."formulaDefinition"',
     );
     expect(query.mock.calls[2][0]).toContain(
-      'CREATE TABLE "core"."formulaVersion"',
+      'CREATE TABLE IF NOT EXISTS "core"."formulaVersion"',
     );
     expect(query.mock.calls[4][0]).toContain(
-      'ADD CONSTRAINT "FK_FORMULA_DEFINITION_ACTIVE_VERSION"',
+      "conname = 'FK_FORMULA_DEFINITION_ACTIVE_VERSION'",
     );
   });
 

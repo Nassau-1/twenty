@@ -7,7 +7,7 @@ import { type FastInstanceCommand } from 'src/engine/core-modules/upgrade/interf
 export class AddFormulaMetadataFastInstanceCommand implements FastInstanceCommand {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
-      CREATE TABLE "core"."formulaDefinition" (
+      CREATE TABLE IF NOT EXISTS "core"."formulaDefinition" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "workspaceId" uuid NOT NULL,
         "objectMetadataId" uuid NOT NULL,
@@ -29,11 +29,11 @@ export class AddFormulaMetadataFastInstanceCommand implements FastInstanceComman
       )
     `);
     await queryRunner.query(`
-      CREATE INDEX "IDX_FORMULA_DEFINITION_WORKSPACE_OBJECT"
+      CREATE INDEX IF NOT EXISTS "IDX_FORMULA_DEFINITION_WORKSPACE_OBJECT"
       ON "core"."formulaDefinition" ("workspaceId", "objectMetadataId")
     `);
     await queryRunner.query(`
-      CREATE TABLE "core"."formulaVersion" (
+      CREATE TABLE IF NOT EXISTS "core"."formulaVersion" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
         "definitionId" uuid NOT NULL,
         "editorDocument" jsonb NOT NULL,
@@ -53,13 +53,24 @@ export class AddFormulaMetadataFastInstanceCommand implements FastInstanceComman
       )
     `);
     await queryRunner.query(`
-      CREATE INDEX "IDX_FORMULA_VERSION_DEFINITION_CREATED_AT"
+      CREATE INDEX IF NOT EXISTS "IDX_FORMULA_VERSION_DEFINITION_CREATED_AT"
       ON "core"."formulaVersion" ("definitionId", "createdAt")
     `);
     await queryRunner.query(`
-      ALTER TABLE "core"."formulaDefinition"
-      ADD CONSTRAINT "FK_FORMULA_DEFINITION_ACTIVE_VERSION"
-      FOREIGN KEY ("activeVersionId") REFERENCES "core"."formulaVersion"("id") ON DELETE SET NULL
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'FK_FORMULA_DEFINITION_ACTIVE_VERSION'
+            AND conrelid = '"core"."formulaDefinition"'::regclass
+        ) THEN
+          ALTER TABLE "core"."formulaDefinition"
+          ADD CONSTRAINT "FK_FORMULA_DEFINITION_ACTIVE_VERSION"
+          FOREIGN KEY ("activeVersionId") REFERENCES "core"."formulaVersion"("id") ON DELETE SET NULL;
+        END IF;
+      END
+      $$
     `);
   }
 
