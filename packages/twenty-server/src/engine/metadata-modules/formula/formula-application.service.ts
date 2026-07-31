@@ -56,6 +56,21 @@ type RecomputeFormulaArgs = {
   recordId: string;
 };
 
+type PreviewFormulaArgs = {
+  workspaceId: string;
+  objectMetadataId: string;
+  recordId: string;
+  document: FormulaEditorDocument;
+};
+
+type FormulaPreviewResult = {
+  recordId: string;
+  output: CompiledFormula['output'];
+  value: number | null;
+  evaluatorVersion: string;
+  instructionCount: number;
+};
+
 type FormulaRecomputeResult = {
   formulaDefinitionId: string;
   formulaVersionId: string;
@@ -195,6 +210,382 @@ export class FormulaApplicationService {
     const { dependencyPlan } = await this.prepareFormula(input);
 
     return dependencyPlan;
+  }
+
+  async previewFormula({
+    workspaceId,
+    objectMetadataId,
+    recordId,
+    document,
+  }: PreviewFormulaArgs): Promise<FormulaPreviewResult> {
+    if (
+      document.references.length >
+      FORMULA_SECURITY_LIMITS.maxDependenciesPerFormula
+    ) {
+      throw new BadRequestException(
+        `A Formula cannot have more than ${FORMULA_SECURITY_LIMITS.maxDependenciesPerFormula} dependencies.`,
+      );
+    }
+
+    const relationDependencyCount = new Set(
+      document.references.flatMap((reference) =>
+        reference.kind === 'RELATION'
+          ? [reference.relationFieldMetadataUniversalIdentifier]
+          : [],
+      ),
+    ).size;
+
+    if (
+      relationDependencyCount >
+      FORMULA_SECURITY_LIMITS.maxRelationDependenciesPerFormula
+    ) {
+      throw new BadRequestException(
+        `A Formula cannot have more than ${FORMULA_SECURITY_LIMITS.maxRelationDependenciesPerFormula} relation dependencies.`,
+      );
+    }
+
+    const [objectMetadata, fields] = await Promise.all([
+      this.objectMetadataRepository.findOne({
+        where: { id: objectMetadataId, workspaceId },
+      }),
+      this.fieldMetadataRepository.find({
+        where: { objectMetadataId, workspaceId },
+      }),
+    ]);
+
+    if (objectMetadata === null) {
+      throw new NotFoundException('Formula object metadata was not found.');
+    }
+
+    const fieldsByUniversalIdentifier = new Map(
+      fields.map((field) => [field.universalIdentifier, field]),
+    );
+
+    for (const reference of document.references) {
+      if (reference.kind === 'RELATION') {
+        const relationField = fieldsByUniversalIdentifier.get(
+          reference.relationFieldMetadataUniversalIdentifier,
+        );
+
+        if (
+          relationField === undefined ||
+          relationField.type !== FieldMetadataType.RELATION ||
+          relationField.relationTargetObjectMetadataId === null ||
+          relationField.relationTargetObjectMetadataId === undefined
+        ) {
+          throw new BadRequestException(
+            'Every Formula relation must resolve inside the selected object.',
+          );
+        }
+
+        continue;
+      }
+
+      if (reference.kind !== 'FIELD') {
+        throw new BadRequestException(
+          'The current Formula slice supports direct field and relation references only.',
+        );
+      }
+
+      const field = fieldsByUniversalIdentifier.get(
+        reference.fieldMetadataUniversalIdentifier,
+      );
+
+      if (field === undefined || field.type !== FieldMetadataType.NUMBER) {
+        throw new BadRequestException(
+          'Formula preview supports NUMBER source fields only.',
+        );
+      }
+    }
+
+    const compileResult = compileFormulaEditorDocument({
+      document,
+      resolveReference: (reference) => {
+        if (reference.kind === 'RELATION') {
+          const relationField = fieldsByUniversalIdentifier.get(
+            reference.relationFieldMetadataUniversalIdentifier,
+          );
+
+          return relationField?.type === FieldMetadataType.RELATION &&
+            relationField.relationTargetObjectMetadataId !== null &&
+            relationField.relationTargetObjectMetadataId !== undefined
+            ? {
+                status: 'success',
+                type: 'RELATION',
+                nullable: false,
+              }
+            : { status: 'error', reason: 'NOT_FOUND' };
+        }
+
+        if (reference.kind !== 'FIELD') {
+          return { status: 'error', reason: 'NOT_FOUND' };
+        }
+
+        const field = fieldsByUniversalIdentifier.get(
+          reference.fieldMetadataUniversalIdentifier,
+        );
+
+        return field?.type === FieldMetadataType.NUMBER
+          ? {
+              status: 'success',
+              type: 'NUMBER',
+              nullable: field.isNullable !== false,
+            }
+          : { status: 'error', reason: 'NOT_FOUND' };
+      },
+    });
+
+    if (compileResult.status === 'error') {
+      throw new BadRequestException({
+        message: 'Formula compilation failed.',
+        diagnostics: compileResult.diagnostics,
+      });
+    }
+
+    if (compileResult.compiledFormula.output.type !== 'NUMBER') {
+      throw new BadRequestException(
+        'Formula preview requires a NUMBER result.',
+      );
+    }
+
+    const dependencyFields = compileResult.compiledFormula.dependencies.flatMap(
+      (dependency) => {
+        const universalIdentifier =
+          dependency.kind === 'FIELD'
+            ? dependency.fieldMetadataUniversalIdentifier
+            : dependency.kind === 'RELATION'
+              ? dependency.relationFieldMetadataUniversalIdentifier
+              : null;
+        const field =
+          universalIdentifier === null
+            ? undefined
+            : fieldsByUniversalIdentifier.get(universalIdentifier);
+
+        return field === undefined ? [] : [field];
+      },
+    );
+
+    await this.formulaAuthorizationService.assertCanReadDependencies({
+      workspaceId,
+      objectMetadataId,
+      dependencyFieldMetadataIds: [
+        ...new Set(dependencyFields.map(({ id }) => id)),
+      ],
+      dependencyObjectMetadataIds: [
+        ...new Set(
+          dependencyFields.flatMap(({ relationTargetObjectMetadataId }) =>
+            relationTargetObjectMetadataId === null ||
+            relationTargetObjectMetadataId === undefined
+              ? []
+              : [relationTargetObjectMetadataId],
+          ),
+        ),
+      ],
+    });
+
+    const compiledFormula = compileResult.compiledFormula;
+    const relationDependencies = compiledFormula.dependencies.filter(
+      (dependency) => dependency.kind === 'RELATION',
+    );
+    const authContext = buildSystemAuthContext(workspaceId);
+
+    return this.globalWorkspaceOrmManager.executeInWorkspaceContext(
+      async () => {
+        const repository =
+          await this.globalWorkspaceOrmManager.getRepository<FormulaRecord>(
+            workspaceId,
+            objectMetadata.nameSingular,
+            { shouldBypassPermissionChecks: true },
+          );
+        const record = await repository.findOne({
+          where: { id: recordId } as FindOptionsWhere<FormulaRecord>,
+        });
+
+        if (record === null) {
+          throw new NotFoundException('Formula preview record was not found.');
+        }
+
+        const relationCounts = new Map<string, number>();
+
+        for (const dependency of relationDependencies) {
+          const relationField = fieldsByUniversalIdentifier.get(
+            dependency.relationFieldMetadataUniversalIdentifier,
+          );
+
+          if (
+            relationField === undefined ||
+            relationField.type !== FieldMetadataType.RELATION
+          ) {
+            throw new BadRequestException(
+              'Formula relation metadata could not be resolved.',
+            );
+          }
+
+          const countResult = await repository
+            .createQueryBuilder('formulaRecord')
+            .leftJoin(
+              `formulaRecord.${relationField.name}`,
+              'formulaRelatedRecord',
+            )
+            .select('COUNT(DISTINCT formulaRelatedRecord.id)', 'count')
+            .where('formulaRecord.id = :recordId', { recordId })
+            .getRawOne<{ count: string | number }>();
+          const count = Number(countResult?.count ?? 0);
+
+          if (!Number.isSafeInteger(count) || count < 0) {
+            throw new BadRequestException(
+              'Formula relation count could not be resolved safely.',
+            );
+          }
+
+          if (count > FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation) {
+            throw new BadRequestException(
+              `Formula relation count exceeds the ${FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation} record limit.`,
+            );
+          }
+
+          relationCounts.set(
+            dependency.relationFieldMetadataUniversalIdentifier,
+            count,
+          );
+        }
+
+        const historicalResolutions = new Map<
+          string,
+          FormulaHistoricalValueResolution
+        >();
+
+        await Promise.all(
+          collectHistoricalLookups(compiledFormula.ast.root).map(
+            async (lookup) => {
+              const field = fieldsByUniversalIdentifier.get(
+                lookup.fieldMetadataUniversalIdentifier,
+              );
+
+              if (field === undefined) {
+                historicalResolutions.set(historicalLookupKey(lookup), {
+                  status: 'unavailable',
+                });
+                return;
+              }
+
+              let result: FormulaHistoryLookupResult;
+
+              if (lookup.functionName === 'previousValue') {
+                result = await this.formulaHistoryService.previousValue({
+                  workspaceId,
+                  objectMetadataId,
+                  recordId,
+                  fieldMetadataId: field.id,
+                });
+              } else {
+                const at = new Date(lookup.at ?? '');
+
+                if (Number.isNaN(at.getTime())) {
+                  throw new BadRequestException(
+                    'valueAt requires a valid ISO timestamp.',
+                  );
+                }
+
+                result = await this.formulaHistoryService.valueAt(
+                  {
+                    workspaceId,
+                    objectMetadataId,
+                    recordId,
+                    fieldMetadataId: field.id,
+                  },
+                  at,
+                );
+              }
+
+              historicalResolutions.set(
+                historicalLookupKey(lookup),
+                toHistoricalResolution(result),
+              );
+            },
+          ),
+        );
+
+        const evaluation = evaluateCompiledFormula({
+          compiledFormula,
+          resolveValue: (reference): FormulaValue | undefined => {
+            if (reference.kind === 'RELATION') {
+              const count = relationCounts.get(
+                reference.relationFieldMetadataUniversalIdentifier,
+              );
+
+              return count === undefined
+                ? undefined
+                : { type: 'RELATION', value: count };
+            }
+
+            if (reference.kind !== 'FIELD') {
+              return undefined;
+            }
+
+            const field = fieldsByUniversalIdentifier.get(
+              reference.fieldMetadataUniversalIdentifier,
+            );
+            const rawValue =
+              field === undefined ? undefined : record[field.name];
+
+            if (rawValue === null || rawValue === undefined) {
+              return { type: 'NULL', value: null };
+            }
+
+            return typeof rawValue === 'number' && Number.isFinite(rawValue)
+              ? { type: 'NUMBER', value: rawValue }
+              : undefined;
+          },
+          resolveHistoricalValue: (request) => {
+            if (request.reference.kind !== 'FIELD') {
+              return { status: 'unavailable' };
+            }
+
+            return (
+              historicalResolutions.get(
+                historicalLookupKey({
+                  functionName: request.functionName,
+                  fieldMetadataUniversalIdentifier:
+                    request.reference.fieldMetadataUniversalIdentifier,
+                  at: request.at,
+                }),
+              ) ?? { status: 'unavailable' }
+            );
+          },
+          limits: {
+            maxRelationItems:
+              FORMULA_SECURITY_LIMITS.maxRelationRecordsPerEvaluation,
+          },
+        });
+
+        if (evaluation.status === 'error') {
+          throw new BadRequestException({
+            message: 'Formula preview failed.',
+            diagnostics: evaluation.diagnostics,
+          });
+        }
+
+        if (
+          evaluation.value.type !== 'NUMBER' &&
+          evaluation.value.type !== 'NULL'
+        ) {
+          throw new BadRequestException(
+            'Formula preview result does not match a NUMBER output.',
+          );
+        }
+
+        return {
+          recordId,
+          output: compiledFormula.output,
+          value:
+            evaluation.value.type === 'NULL' ? null : evaluation.value.value,
+          evaluatorVersion: evaluation.evaluatorVersion,
+          instructionCount: evaluation.instructionCount,
+        };
+      },
+      authContext,
+    );
   }
 
   private async prepareFormula({

@@ -8,19 +8,12 @@ import { FORMULA_FIELD_TYPE } from '@/settings/data-model/constants/FormulaField
 import { SettingsObjectNewFieldHeaderIcon } from '@/settings/data-model/fields/components/SettingsObjectNewFieldHeaderIcon';
 import { SettingsDataModelFieldIconLabelForm } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldIconLabelForm';
 import { SettingsDataModelFieldSettingsFormCard } from '@/settings/data-model/fields/forms/components/SettingsDataModelFieldSettingsFormCard';
-import {
-  type FormulaCalculationType,
-  SettingsDataModelFormulaForm,
-} from '@/settings/data-model/fields/forms/formula/components/SettingsDataModelFormulaForm';
+import { SettingsDataModelFormulaForm } from '@/settings/data-model/fields/forms/formula/components/SettingsDataModelFormulaForm';
 import {
   createFormulaMetadata,
   planFormulaMetadata,
 } from '@/settings/data-model/fields/forms/formula/services/formulaMetadataApi';
-import {
-  buildFormulaEditorDocument,
-  buildRelationCountFormulaEditorDocument,
-  normalizeFormulaNumberLiteral,
-} from '@/settings/data-model/fields/forms/formula/utils/buildFormulaEditorDocument';
+import { compileFormulaDisplaySource } from '@/settings/data-model/fields/forms/formula/utils/compileFormulaDisplaySource';
 import { settingsFieldFormSchema } from '@/settings/data-model/fields/forms/validation-schemas/settingsFieldFormSchema';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
@@ -101,10 +94,9 @@ export const SettingsObjectNewFieldConfigure = () => {
   }, [fieldType, formConfig]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [selectedSourceFieldId, setSelectedSourceFieldId] = useState('');
-  const [formulaCalculationType, setFormulaCalculationType] =
-    useState<FormulaCalculationType>('COUNT_RELATED_RECORDS');
-  const [multiplierLiteral, setMultiplierLiteral] = useState('2');
+  const [formulaSource, setFormulaSource] = useState('');
+  const [hasInitializedFormulaSource, setHasInitializedFormulaSource] =
+    useState(false);
 
   useEffect(() => {
     if (!isDefined(activeObjectMetadataItem)) {
@@ -112,39 +104,40 @@ export const SettingsObjectNewFieldConfigure = () => {
     }
   }, [activeObjectMetadataItem, navigateApp]);
 
-  const numberFields = useMemo(
+  const formulaSourceFields = useMemo(
     () =>
       activeObjectMetadataItem?.fields.filter(
         (field) =>
-          field.type === FieldMetadataType.NUMBER &&
+          (field.type === FieldMetadataType.NUMBER ||
+            field.type === FieldMetadataType.RELATION) &&
           field.isActive !== false &&
-          field.isUIEditable !== false,
+          (field.type !== FieldMetadataType.NUMBER ||
+            field.isUIEditable !== false),
       ) ?? [],
     [activeObjectMetadataItem?.fields],
   );
-
-  const relationFields = useMemo(
-    () =>
-      activeObjectMetadataItem?.fields.filter(
-        (field) =>
-          field.type === FieldMetadataType.RELATION && field.isActive !== false,
-      ) ?? [],
-    [activeObjectMetadataItem?.fields],
-  );
-
-  const formulaSourceFields =
-    formulaCalculationType === 'COUNT_RELATED_RECORDS'
-      ? relationFields
-      : numberFields;
 
   useEffect(() => {
     if (
-      isFormulaField &&
-      !formulaSourceFields.some((field) => field.id === selectedSourceFieldId)
+      !isFormulaField ||
+      hasInitializedFormulaSource ||
+      formulaSourceFields.length === 0
     ) {
-      setSelectedSourceFieldId(formulaSourceFields[0]?.id ?? '');
+      return;
     }
-  }, [formulaSourceFields, isFormulaField, selectedSourceFieldId]);
+
+    const relationField = formulaSourceFields.find(
+      (field) => field.type === FieldMetadataType.RELATION,
+    );
+    const initialField = relationField ?? formulaSourceFields[0];
+
+    setFormulaSource(
+      relationField === undefined
+        ? `{${initialField.label}} * 2`
+        : `count({${initialField.label}})`,
+    );
+    setHasInitializedFormulaSource(true);
+  }, [formulaSourceFields, hasInitializedFormulaSource, isFormulaField]);
 
   const isDDLLocked = useAtomStateValue(isDDLLockedState);
 
@@ -152,32 +145,15 @@ export const SettingsObjectNewFieldConfigure = () => {
 
   const { isValid, isSubmitting } = formConfig.formState;
 
-  const sourceField = formulaSourceFields.find(
-    (field) => field.id === selectedSourceFieldId,
-  );
-  const normalizedMultiplierLiteral =
-    normalizeFormulaNumberLiteral(multiplierLiteral);
-  const formulaValidationError =
-    formulaSourceFields.length === 0
-      ? formulaCalculationType === 'COUNT_RELATED_RECORDS'
-        ? t`No relation field is available.`
-        : t`No editable number field is available.`
-      : formulaCalculationType === 'MULTIPLY_NUMBER' &&
-          normalizedMultiplierLiteral === null
-        ? t`Enter a finite decimal multiplier.`
-        : null;
-  const formulaPreview = !isDefined(sourceField)
-    ? ''
-    : formulaCalculationType === 'COUNT_RELATED_RECORDS'
-      ? `count(${sourceField.label})`
-      : normalizedMultiplierLiteral === null
-        ? ''
-        : `${sourceField.label} * ${normalizedMultiplierLiteral}`;
+  const formulaCompileResult = compileFormulaDisplaySource({
+    displaySource: formulaSource,
+    sourceFields: formulaSourceFields,
+  });
   const canSave =
     isValid &&
     !isSubmitting &&
     !isDDLLocked &&
-    (!isFormulaField || formulaValidationError === null);
+    (!isFormulaField || formulaCompileResult.status === 'success');
 
   const handleSave = async (
     formValues: SettingsDataModelNewFieldFormValues,
@@ -196,20 +172,24 @@ export const SettingsObjectNewFieldConfigure = () => {
     };
 
     if (isFormulaField) {
-      if (
-        !isDefined(sourceField) ||
-        (formulaCalculationType === 'MULTIPLY_NUMBER' &&
-          normalizedMultiplierLiteral === null)
-      ) {
+      if (formulaCompileResult.status !== 'success') {
         setIsSaving(false);
         return;
       }
+
+      const hasRelationDependency =
+        formulaCompileResult.compiledFormula.dependencies.some(
+          (dependency) => dependency.kind === 'RELATION',
+        );
 
       const outputFieldCreation = await createMetadataField({
         ...formValues,
         type: FieldMetadataType.NUMBER,
         objectMetadataId: activeObjectMetadataItem.id,
         isUIEditable: false,
+        isNullable:
+          hasRelationDependency ||
+          formulaCompileResult.compiledFormula.output.nullable,
       });
 
       if (outputFieldCreation.status !== 'successful') {
@@ -226,22 +206,10 @@ export const SettingsObjectNewFieldConfigure = () => {
         return;
       }
 
-      const document =
-        formulaCalculationType === 'COUNT_RELATED_RECORDS'
-          ? buildRelationCountFormulaEditorDocument({
-              relationFieldMetadataUniversalIdentifier:
-                sourceField.universalIdentifier,
-              relationFieldLabel: sourceField.label,
-            })
-          : buildFormulaEditorDocument({
-              fieldMetadataUniversalIdentifier: sourceField.universalIdentifier,
-              fieldLabel: sourceField.label,
-              multiplierLiteral: normalizedMultiplierLiteral,
-            });
       const formulaInput = {
         objectMetadataId: activeObjectMetadataItem.id,
         outputFieldMetadataId,
-        document,
+        document: formulaCompileResult.document,
         reason: 'Created from the native Data Model Formula editor.',
       };
 
@@ -397,14 +365,11 @@ export const SettingsObjectNewFieldConfigure = () => {
           {isFormulaField && (
             <SettingsDataModelFormulaForm
               sourceFields={formulaSourceFields}
-              selectedFieldId={selectedSourceFieldId}
-              onSelectedFieldIdChange={setSelectedSourceFieldId}
-              calculationType={formulaCalculationType}
-              onCalculationTypeChange={setFormulaCalculationType}
-              multiplierLiteral={multiplierLiteral}
-              onMultiplierLiteralChange={setMultiplierLiteral}
-              formulaPreview={formulaPreview}
-              validationError={formulaValidationError}
+              formulaSource={formulaSource}
+              onFormulaSourceChange={setFormulaSource}
+              compileResult={formulaCompileResult}
+              objectMetadataId={activeObjectMetadataItem.id}
+              objectNameSingular={activeObjectMetadataItem.nameSingular}
             />
           )}
           <Section>

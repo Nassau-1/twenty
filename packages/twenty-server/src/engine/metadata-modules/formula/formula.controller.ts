@@ -20,6 +20,7 @@ import { JwtAuthGuard } from 'src/engine/guards/jwt-auth.guard';
 import { SettingsPermissionGuard } from 'src/engine/guards/settings-permission.guard';
 import { WorkspaceAuthGuard } from 'src/engine/guards/workspace-auth.guard';
 import { CreateFormulaInput } from 'src/engine/metadata-modules/formula/dtos/create-formula.input';
+import { PreviewFormulaInput } from 'src/engine/metadata-modules/formula/dtos/preview-formula.input';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
 import { PermissionsRestApiExceptionFilter } from 'src/engine/metadata-modules/permissions/utils/permissions-rest-api-exception.filter';
 
@@ -61,6 +62,19 @@ export class FormulaController {
       outputFieldMetadataId: input.outputFieldMetadataId,
       document: input.document,
       reason: input.reason ?? null,
+    });
+  }
+
+  @Post('preview')
+  previewFormula(
+    @Body() input: PreviewFormulaInput,
+    @AuthWorkspace() { id: workspaceId }: WorkspaceEntity,
+  ) {
+    return this.formulaApplicationService.previewFormula({
+      workspaceId,
+      objectMetadataId: input.objectMetadataId,
+      recordId: input.recordId,
+      document: input.document,
     });
   }
 

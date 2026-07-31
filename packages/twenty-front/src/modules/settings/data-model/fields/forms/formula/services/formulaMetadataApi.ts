@@ -9,6 +9,23 @@ export type FormulaMetadataApiInput = {
   reason?: string;
 };
 
+export type FormulaPreviewApiInput = {
+  objectMetadataId: string;
+  recordId: string;
+  document: FormulaEditorDocument;
+};
+
+export type FormulaPreviewApiResult = {
+  recordId: string;
+  output: {
+    type: 'NUMBER';
+    nullable: boolean;
+  };
+  value: number | null;
+  evaluatorVersion: string;
+  instructionCount: number;
+};
+
 const getErrorMessage = async (response: Response): Promise<string> => {
   try {
     const body = (await response.json()) as {
@@ -61,8 +78,40 @@ const postFormulaMetadata = async ({
   return response.json();
 };
 
+const postFormulaPreview = async (
+  input: FormulaPreviewApiInput,
+): Promise<FormulaPreviewApiResult> => {
+  const accessToken =
+    getTokenPair()?.accessOrWorkspaceAgnosticToken?.token ?? null;
+
+  if (accessToken === null) {
+    throw new Error('Your session is no longer authenticated.');
+  }
+
+  const response = await fetch(
+    `${REACT_APP_SERVER_BASE_URL}/rest/metadata/formulas/preview`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(input),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response));
+  }
+
+  return response.json() as Promise<FormulaPreviewApiResult>;
+};
+
 export const planFormulaMetadata = (input: FormulaMetadataApiInput) =>
   postFormulaMetadata({ path: '/plan', input });
 
 export const createFormulaMetadata = (input: FormulaMetadataApiInput) =>
   postFormulaMetadata({ path: '', input });
+
+export const previewFormulaMetadata = (input: FormulaPreviewApiInput) =>
+  postFormulaPreview(input);
