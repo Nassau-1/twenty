@@ -4,6 +4,7 @@ import { type Repository } from 'typeorm';
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
+import { FormulaHistoryService } from 'src/engine/metadata-modules/formula/formula-history.service';
 import { FormulaReactiveService } from 'src/engine/metadata-modules/formula/formula-reactive.service';
 import { type WorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/workspace-scoped-repository';
 import { type WorkspaceEventBatch } from 'src/engine/workspace-event-emitter/types/workspace-event-batch.type';
@@ -18,10 +19,14 @@ describe('FormulaReactiveService', () => {
   const formulaApplicationService = {
     recomputeRecord: jest.fn(),
   };
+  const formulaHistoryService = {
+    captureFieldUpdates: jest.fn(),
+  };
   const service = new FormulaReactiveService(
     fieldMetadataRepository as unknown as Repository<FieldMetadataEntity>,
     formulaDefinitionRepository as unknown as WorkspaceScopedRepository<FormulaDefinitionEntity>,
     formulaApplicationService as unknown as FormulaApplicationService,
+    formulaHistoryService as unknown as FormulaHistoryService,
   );
   const batch = {
     name: 'company.updated',
@@ -59,10 +64,29 @@ describe('FormulaReactiveService', () => {
     formulaDefinitionRepository.find.mockResolvedValue([
       {
         id: 'formula-id',
+        outputFieldMetadataId: 'formula-output-id',
         activeVersionId: 'version-id',
         versions: [
           {
             id: 'version-id',
+            ast: {
+              version: 1,
+              root: {
+                kind: 'CALL',
+                functionName: 'previousValue',
+                arguments: [
+                  {
+                    kind: 'REFERENCE',
+                    reference: {
+                      kind: 'FIELD',
+                      fieldMetadataUniversalIdentifier: 'source-field-uid',
+                    },
+                    span: { start: 14, end: 21 },
+                  },
+                ],
+                span: { start: 0, end: 22 },
+              },
+            },
             dependencies: [
               {
                 kind: 'FIELD',
@@ -74,10 +98,22 @@ describe('FormulaReactiveService', () => {
       },
       {
         id: 'unrelated-formula-id',
+        outputFieldMetadataId: 'unrelated-output-id',
         activeVersionId: 'unrelated-version-id',
         versions: [
           {
             id: 'unrelated-version-id',
+            ast: {
+              version: 1,
+              root: {
+                kind: 'REFERENCE',
+                reference: {
+                  kind: 'FIELD',
+                  fieldMetadataUniversalIdentifier: 'other-field-uid',
+                },
+                span: { start: 0, end: 5 },
+              },
+            },
             dependencies: [
               {
                 kind: 'FIELD',
@@ -89,6 +125,7 @@ describe('FormulaReactiveService', () => {
       },
     ]);
     formulaApplicationService.recomputeRecord.mockResolvedValue({});
+    formulaHistoryService.captureFieldUpdates.mockResolvedValue(2);
   });
 
   it('recomputes each active Formula that depends on a changed field', async () => {
@@ -101,6 +138,11 @@ describe('FormulaReactiveService', () => {
       formulaDefinitionId: 'formula-id',
       recordId: 'record-id',
     });
+    expect(formulaHistoryService.captureFieldUpdates).toHaveBeenCalledWith(
+      batch,
+      new Set(['source-field-id']),
+      new Set(['formula-output-id', 'unrelated-output-id']),
+    );
   });
 
   it('does not recompute when the update touches no Formula dependency', async () => {

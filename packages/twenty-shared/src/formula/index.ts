@@ -44,6 +44,10 @@ export type {
   FormulaCompileResult,
   FormulaValue,
   ResolveFormulaValue,
+  FormulaHistoricalFunctionName,
+  FormulaHistoricalValueRequest,
+  FormulaHistoricalValueResolution,
+  ResolveFormulaHistoricalValue,
   FormulaEvaluationLimits,
   FormulaEvaluationResult,
 } from './formula-types';

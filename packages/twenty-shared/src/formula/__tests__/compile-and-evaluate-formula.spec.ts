@@ -60,6 +60,93 @@ describe('compileFormulaEditorDocument and evaluateCompiledFormula', () => {
     });
   });
 
+  it('evaluates previousValue through the explicit history resolver', () => {
+    const historicalDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'previousValue(Revenue) * 2',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'revenue-field',
+          label: 'Revenue',
+          span: { start: 14, end: 21 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: historicalDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'NUMBER',
+        nullable: false,
+      }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected historical Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: () => ({ type: 'NUMBER', value: 125 }),
+        resolveHistoricalValue: ({ functionName, reference }) => ({
+          status: 'available',
+          value: {
+            type: 'NUMBER',
+            value:
+              functionName === 'previousValue' &&
+              reference.kind === 'FIELD' &&
+              reference.fieldMetadataUniversalIdentifier === 'revenue-field'
+                ? 100
+                : 0,
+          },
+        }),
+      }),
+    ).toMatchObject({
+      status: 'success',
+      value: { type: 'NUMBER', value: 200 },
+    });
+  });
+
+  it('fails closed when history predates ledger coverage', () => {
+    const historicalDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'valueAt(Revenue, "2020-01-01T00:00:00.000Z")',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'revenue-field',
+          label: 'Revenue',
+          span: { start: 8, end: 15 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: historicalDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'NUMBER',
+        nullable: false,
+      }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected historical Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: () => ({ type: 'NUMBER', value: 125 }),
+        resolveHistoricalValue: () => ({ status: 'unavailable' }),
+      }),
+    ).toMatchObject({
+      status: 'error',
+      diagnostics: [{ code: 'HISTORY_UNAVAILABLE' }],
+    });
+  });
+
   it('rejects an unauthorized dependency during compilation', () => {
     const result = compileFormulaEditorDocument({
       document,

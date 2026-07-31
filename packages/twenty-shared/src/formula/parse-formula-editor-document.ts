@@ -579,9 +579,17 @@ class FormulaParser {
       'RIGHT_PAREN',
       'Expected a closing parenthesis after function arguments.',
     );
+    const lowerCaseFunctionName = String(identifier.value).toLowerCase();
+    const functionName =
+      lowerCaseFunctionName === 'previousvalue'
+        ? 'previousValue'
+        : lowerCaseFunctionName === 'valueat'
+          ? 'valueAt'
+          : lowerCaseFunctionName;
+
     return this.createNode({
       kind: 'CALL',
-      functionName: String(identifier.value).toLowerCase(),
+      functionName,
       arguments: args,
       span: { start: identifier.span.start, end: rightParen.span.end },
     });

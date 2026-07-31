@@ -7,6 +7,7 @@ import {
   type FormulaNode,
   type FormulaValue,
   FORMULA_EVALUATOR_VERSION,
+  type ResolveFormulaHistoricalValue,
   type ResolveFormulaValue,
 } from './formula-types';
 
@@ -131,10 +132,12 @@ const evaluateBinary = ({
 export const evaluateCompiledFormula = ({
   compiledFormula,
   resolveValue,
+  resolveHistoricalValue,
   limits: requestedLimits,
 }: {
   compiledFormula: CompiledFormula;
   resolveValue: ResolveFormulaValue;
+  resolveHistoricalValue?: ResolveFormulaHistoricalValue;
   limits?: Partial<FormulaEvaluationLimits>;
 }): FormulaEvaluationResult => {
   const limits = {
@@ -253,6 +256,55 @@ export const evaluateCompiledFormula = ({
           node,
         );
       case 'CALL': {
+        if (
+          node.functionName === 'previousValue' ||
+          node.functionName === 'valueAt'
+        ) {
+          const sourceArgument = node.arguments[0];
+
+          if (
+            sourceArgument.kind !== 'REFERENCE' ||
+            sourceArgument.reference.kind !== 'FIELD' ||
+            resolveHistoricalValue === undefined
+          ) {
+            throw evaluationError(
+              'EVALUATION_ERROR',
+              `${node.functionName} could not resolve its history source.`,
+              node,
+            );
+          }
+
+          let at: string | undefined;
+
+          if (node.functionName === 'valueAt') {
+            const atValue = evaluate(node.arguments[1], depth + 1);
+
+            if (atValue.type !== 'TEXT') {
+              throw evaluationError(
+                'EVALUATION_ERROR',
+                'valueAt timestamp must be TEXT.',
+                node.arguments[1],
+              );
+            }
+            at = atValue.value;
+          }
+
+          const resolution = resolveHistoricalValue({
+            functionName: node.functionName,
+            reference: sourceArgument.reference,
+            at,
+          });
+
+          if (resolution.status === 'unavailable') {
+            throw evaluationError(
+              'HISTORY_UNAVAILABLE',
+              'Formula history is unavailable for the requested value.',
+              node,
+            );
+          }
+
+          return assertWithinLimits(resolution.value, node);
+        }
         if (node.functionName === 'if') {
           const condition = evaluate(node.arguments[0], depth + 1);
           if (condition.type === 'NULL') {
