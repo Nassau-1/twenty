@@ -1,4 +1,8 @@
-import { type ObjectRecordUpdateEvent } from 'twenty-shared/database-events';
+import {
+  type ObjectRecordCreateEvent,
+  type ObjectRecordDeleteEvent,
+  type ObjectRecordUpdateEvent,
+} from 'twenty-shared/database-events';
 
 import { EntityEventsToDbListener } from 'src/engine/api/graphql/workspace-query-runner/listeners/entity-events-to-db.listener';
 import { type MessageQueueService } from 'src/engine/core-modules/message-queue/services/message-queue.service';
@@ -87,5 +91,58 @@ describe('EntityEventsToDbListener Formula updates', () => {
         retryLimit: 3,
       },
     );
+  });
+
+  it('enqueues relation recomputes for create and delete batches', async () => {
+    const createBatch = {
+      ...batch,
+      name: 'person.created',
+      events: [
+        {
+          recordId: 'person-id',
+          properties: { after: { companyId: 'company-id' } },
+        },
+      ],
+    } as unknown as WorkspaceEventBatch<ObjectRecordCreateEvent>;
+    const deleteBatch = {
+      ...batch,
+      name: 'person.deleted',
+      events: [
+        {
+          recordId: 'person-id',
+          properties: {
+            before: { companyId: 'company-id' },
+            after: { companyId: 'company-id', deletedAt: new Date() },
+            updatedFields: ['deletedAt'],
+            diff: {},
+          },
+        },
+      ],
+    } as unknown as WorkspaceEventBatch<ObjectRecordDeleteEvent>;
+
+    await listener.handleCreate(createBatch);
+    await listener.handleDelete(deleteBatch);
+
+    const formulaJobs = entityEventsQueue.add.mock.calls.filter(
+      ([jobName]) => jobName === FormulaRecomputeJob.name,
+    );
+
+    expect(formulaJobs).toHaveLength(2);
+    expect(formulaJobs[0]).toEqual([
+      FormulaRecomputeJob.name,
+      createBatch,
+      {
+        id: expect.stringMatching(/^formula-recompute-[0-9a-f]{64}$/),
+        retryLimit: 3,
+      },
+    ]);
+    expect(formulaJobs[1]).toEqual([
+      FormulaRecomputeJob.name,
+      deleteBatch,
+      {
+        id: expect.stringMatching(/^formula-recompute-[0-9a-f]{64}$/),
+        retryLimit: 3,
+      },
+    ]);
   });
 });

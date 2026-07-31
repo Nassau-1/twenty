@@ -16,6 +16,12 @@ const fieldDependency = (
   kind: 'FIELD',
   fieldMetadataUniversalIdentifier,
 });
+const relationDependency = (
+  relationFieldMetadataUniversalIdentifier: string,
+): FormulaDependency => ({
+  kind: 'RELATION',
+  relationFieldMetadataUniversalIdentifier,
+});
 
 const field = (id: string, universalIdentifier = `${id}-uid`) =>
   ({
@@ -145,6 +151,31 @@ describe('FormulaDependencyPlannerService', () => {
         ],
       }),
     });
+  });
+
+  it('includes a one-hop relation in the bounded direct dependency plan', async () => {
+    fieldMetadataRepository.find.mockResolvedValue([
+      field('people-relation'),
+      field('candidate-output'),
+    ]);
+    formulaDefinitionRepository.find.mockResolvedValue([]);
+
+    await expect(
+      service.planProspectiveVersion({
+        workspaceId: 'workspace-id',
+        objectMetadataId: 'object-id',
+        objectMetadataUniversalIdentifier: 'object-uid',
+        outputFieldMetadataId: 'candidate-output',
+        dependencies: [relationDependency('people-relation-uid')],
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        candidateDepth: 1,
+        directDependencyFieldMetadataIds: ['people-relation'],
+        directUpstreamFormulaDefinitionIds: [],
+        topologicalOutputFieldMetadataIds: ['candidate-output'],
+      }),
+    );
   });
 
   it('rejects chains deeper than the V1 three-level limit', async () => {

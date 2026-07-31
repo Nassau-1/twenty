@@ -14,10 +14,12 @@ export class FormulaAuthorizationService {
     workspaceId,
     objectMetadataId,
     dependencyFieldMetadataIds,
+    dependencyObjectMetadataIds = [],
   }: {
     workspaceId: string;
     objectMetadataId: string;
     dependencyFieldMetadataIds: string[];
+    dependencyObjectMetadataIds?: string[];
   }): Promise<void> {
     const authContext = getWorkspaceAuthContext();
 
@@ -53,6 +55,21 @@ export class FormulaAuthorizationService {
 
     if (objectPermissions?.canReadObjectRecords !== true) {
       throw this.permissionDenied();
+    }
+
+    for (const dependencyObjectMetadataId of new Set(
+      dependencyObjectMetadataIds,
+    )) {
+      const dependencyObjectPermissions =
+        objectsPermissions[dependencyObjectMetadataId];
+
+      if (
+        dependencyObjectPermissions?.canReadObjectRecords !== true ||
+        dependencyObjectPermissions.rowLevelPermissionPredicates.length > 0 ||
+        dependencyObjectPermissions.rowLevelPermissionPredicateGroups.length > 0
+      ) {
+        throw this.permissionDenied();
+      }
     }
 
     for (const fieldMetadataId of new Set(dependencyFieldMetadataIds)) {

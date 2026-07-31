@@ -40,22 +40,61 @@ export class EntityEventsToDbListener {
 
   @OnDatabaseBatchEvent('*', DatabaseEventAction.CREATED)
   async handleCreate(batchEvent: WorkspaceEventBatch<ObjectRecordCreateEvent>) {
-    return this.handleEvent(batchEvent, DatabaseEventAction.CREATED);
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.CREATED),
+      this.enqueueFormulaRecompute(batchEvent),
+    ]);
   }
 
   @OnDatabaseBatchEvent('*', DatabaseEventAction.UPDATED)
   async handleUpdate(batchEvent: WorkspaceEventBatch<ObjectRecordUpdateEvent>) {
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.UPDATED),
+      this.enqueueFormulaRecompute(batchEvent),
+    ]);
+  }
+
+  @OnDatabaseBatchEvent('*', DatabaseEventAction.DELETED)
+  async handleDelete(batchEvent: WorkspaceEventBatch<ObjectRecordDeleteEvent>) {
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.DELETED),
+      this.enqueueFormulaRecompute(batchEvent),
+    ]);
+  }
+
+  @OnDatabaseBatchEvent('*', DatabaseEventAction.RESTORED)
+  async handleRestore(
+    batchEvent: WorkspaceEventBatch<ObjectRecordRestoreEvent>,
+  ) {
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.RESTORED),
+      this.enqueueFormulaRecompute(batchEvent),
+    ]);
+  }
+
+  @OnDatabaseBatchEvent('*', DatabaseEventAction.DESTROYED)
+  async handleDestroy(
+    batchEvent: WorkspaceEventBatch<ObjectRecordDestroyEvent>,
+  ) {
+    await Promise.all([
+      this.handleEvent(batchEvent, DatabaseEventAction.DESTROYED),
+      this.enqueueFormulaRecompute(batchEvent),
+    ]);
+  }
+
+  private async enqueueFormulaRecompute<T extends ObjectRecordEvent>(
+    batchEvent: WorkspaceEventBatch<T>,
+  ): Promise<void> {
     const eventIdentity = batchEvent.events
       .map((event) => ({
         recordId: event.recordId,
-        updatedAt:
-          (event.properties.after as Record<string, unknown>).updatedAt ?? null,
-        updatedFields: [...event.properties.updatedFields].sort(),
+        properties: event.properties,
       }))
       .sort((left, right) => left.recordId.localeCompare(right.recordId));
     const jobId = createHash('sha256')
       .update(
         JSON.stringify({
+          name: batchEvent.name,
           workspaceId: batchEvent.workspaceId,
           objectMetadataId: batchEvent.objectMetadata.id,
           events: eventIdentity,
@@ -63,34 +102,14 @@ export class EntityEventsToDbListener {
       )
       .digest('hex');
 
-    await Promise.all([
-      this.handleEvent(batchEvent, DatabaseEventAction.UPDATED),
-      this.entityEventsToDbQueueService.add<
-        WorkspaceEventBatch<ObjectRecordUpdateEvent>
-      >(FormulaRecomputeJob.name, batchEvent, {
+    await this.entityEventsToDbQueueService.add<WorkspaceEventBatch<T>>(
+      FormulaRecomputeJob.name,
+      batchEvent,
+      {
         id: `formula-recompute-${jobId}`,
         retryLimit: 3,
-      }),
-    ]);
-  }
-
-  @OnDatabaseBatchEvent('*', DatabaseEventAction.DELETED)
-  async handleDelete(batchEvent: WorkspaceEventBatch<ObjectRecordDeleteEvent>) {
-    return this.handleEvent(batchEvent, DatabaseEventAction.DELETED);
-  }
-
-  @OnDatabaseBatchEvent('*', DatabaseEventAction.RESTORED)
-  async handleRestore(
-    batchEvent: WorkspaceEventBatch<ObjectRecordRestoreEvent>,
-  ) {
-    return this.handleEvent(batchEvent, DatabaseEventAction.RESTORED);
-  }
-
-  @OnDatabaseBatchEvent('*', DatabaseEventAction.DESTROYED)
-  async handleDestroy(
-    batchEvent: WorkspaceEventBatch<ObjectRecordDestroyEvent>,
-  ) {
-    return this.handleEvent(batchEvent, DatabaseEventAction.DESTROYED);
+      },
+    );
   }
 
   private async handleEvent<T extends ObjectRecordEvent>(

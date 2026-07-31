@@ -56,6 +56,17 @@ const outputField = {
   isNullable: true,
   isUIEditable: false,
 } as FieldMetadataEntity;
+const peopleRelationField = {
+  id: 'people-relation-id',
+  workspaceId: 'workspace-id',
+  objectMetadataId: 'object-id',
+  relationTargetObjectMetadataId: 'person-object-id',
+  universalIdentifier: 'people-relation',
+  name: 'people',
+  type: FieldMetadataType.RELATION,
+  isNullable: true,
+  isUIEditable: true,
+} as FieldMetadataEntity;
 
 describe('FormulaApplicationService', () => {
   const fieldMetadataRepository = {
@@ -76,16 +87,38 @@ describe('FormulaApplicationService', () => {
     assertCanReadDependencies: jest.fn(),
   };
   const recordRepository = {
+    createQueryBuilder: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
+  };
+  const relationCountQueryBuilder = {
+    getRawOne: jest.fn(),
+    leftJoin: jest.fn(),
+    select: jest.fn(),
+    where: jest.fn(),
   };
   const formulaHistoryService = {
     previousValue: jest.fn(),
     valueAt: jest.fn(),
     appendFormulaMaterialization: jest.fn(),
   };
+  const transactionManager = {
+    getRepository: jest.fn(),
+  };
+  const queryRunner = {
+    commitTransaction: jest.fn(),
+    connect: jest.fn(),
+    manager: transactionManager,
+    release: jest.fn(),
+    rollbackTransaction: jest.fn(),
+    startTransaction: jest.fn(),
+  };
+  const workspaceDataSource = {
+    createQueryRunner: jest.fn(),
+  };
   const globalWorkspaceOrmManager = {
     executeInWorkspaceContext: jest.fn((callback) => callback()),
+    getGlobalWorkspaceDataSource: jest.fn(),
     getRepository: jest.fn(),
   };
   const service = new FormulaApplicationService(
@@ -103,6 +136,19 @@ describe('FormulaApplicationService', () => {
     objectMetadataRepository.findOne.mockResolvedValue(objectMetadata);
     fieldMetadataRepository.find.mockResolvedValue([revenueField, outputField]);
     formulaMetadataService.countDefinitions.mockResolvedValue(0);
+    relationCountQueryBuilder.leftJoin.mockReturnValue(
+      relationCountQueryBuilder,
+    );
+    relationCountQueryBuilder.select.mockReturnValue(relationCountQueryBuilder);
+    relationCountQueryBuilder.where.mockReturnValue(relationCountQueryBuilder);
+    recordRepository.createQueryBuilder.mockReturnValue(
+      relationCountQueryBuilder,
+    );
+    transactionManager.getRepository.mockReturnValue(recordRepository);
+    workspaceDataSource.createQueryRunner.mockReturnValue(queryRunner);
+    globalWorkspaceOrmManager.getGlobalWorkspaceDataSource.mockResolvedValue(
+      workspaceDataSource,
+    );
     formulaDependencyPlannerService.planProspectiveVersion.mockResolvedValue({
       candidateOutputFieldMetadataId: 'output-id',
       candidateDepth: 1,
@@ -164,6 +210,7 @@ describe('FormulaApplicationService', () => {
       workspaceId: 'workspace-id',
       objectMetadataId: 'object-id',
       dependencyFieldMetadataIds: ['revenue-id'],
+      dependencyObjectMetadataIds: [],
     });
   });
 
@@ -183,6 +230,57 @@ describe('FormulaApplicationService', () => {
     expect(
       formulaMetadataService.createDefinitionWithActiveVersion,
     ).not.toHaveBeenCalled();
+  });
+
+  it('plans a relation count only when the target object is readable', async () => {
+    const relationDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'count(People)',
+      references: [
+        {
+          kind: 'RELATION',
+          relationFieldMetadataUniversalIdentifier: 'people-relation',
+          label: 'People',
+          span: { start: 6, end: 12 },
+        },
+      ],
+    };
+
+    fieldMetadataRepository.find.mockResolvedValue([
+      revenueField,
+      peopleRelationField,
+      outputField,
+    ]);
+    formulaDependencyPlannerService.planProspectiveVersion.mockResolvedValue({
+      candidateOutputFieldMetadataId: 'output-id',
+      candidateDepth: 1,
+      directDependencyFieldMetadataIds: ['people-relation-id'],
+      directUpstreamFormulaDefinitionIds: [],
+      lineageKey: 'relation-lineage-key',
+      maxFormulaDepth: 1,
+      topologicalOutputFieldMetadataIds: ['output-id'],
+      summary: 'Formula depth 1; 0 direct upstream Formulas.',
+    });
+    formulaMetadataService.createDefinitionWithActiveVersion.mockResolvedValue({
+      id: 'relation-definition-id',
+    });
+
+    await service.createFormula({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      outputFieldMetadataId: 'output-id',
+      document: relationDocument,
+      reason: 'bounded relation count',
+    });
+
+    expect(
+      formulaAuthorizationService.assertCanReadDependencies,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      dependencyFieldMetadataIds: ['people-relation-id'],
+      dependencyObjectMetadataIds: ['person-object-id'],
+    });
   });
 
   it('rejects a writable output field', async () => {
@@ -255,7 +353,7 @@ describe('FormulaApplicationService', () => {
       recordId: 'record-id',
       outputFieldName: 'formulaResult',
       value: 250,
-      evaluatorVersion: '1.1.0',
+      evaluatorVersion: '1.2.0',
       instructionCount: 3,
     });
     expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
@@ -337,7 +435,7 @@ describe('FormulaApplicationService', () => {
       }),
     ).resolves.toMatchObject({
       value: 200,
-      evaluatorVersion: '1.1.0',
+      evaluatorVersion: '1.2.0',
       historyAppended: true,
     });
     expect(formulaHistoryService.previousValue).toHaveBeenCalledWith({
@@ -348,6 +446,104 @@ describe('FormulaApplicationService', () => {
     });
     expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
       formulaResult: 200,
+    });
+  });
+
+  it('materializes a bounded one-hop relation count', async () => {
+    const relationDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'count(People)',
+      references: [
+        {
+          kind: 'RELATION',
+          relationFieldMetadataUniversalIdentifier: 'people-relation',
+          label: 'People',
+          span: { start: 6, end: 12 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: relationDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'RELATION',
+        nullable: false,
+      }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected relation Formula compilation to succeed.');
+    }
+
+    fieldMetadataRepository.find.mockResolvedValue([
+      revenueField,
+      peopleRelationField,
+      outputField,
+    ]);
+    formulaMetadataService.findById.mockResolvedValue({
+      id: 'definition-id',
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      outputFieldMetadataId: 'output-id',
+      activeVersionId: 'version-id',
+      versions: [
+        {
+          id: 'version-id',
+          ast: compileResult.compiledFormula.ast,
+          dependencies: compileResult.compiledFormula.dependencies,
+          outputType: 'NUMBER',
+          isNullable: false,
+        },
+      ],
+    } as FormulaDefinitionEntity);
+    recordRepository.findOne.mockResolvedValue({
+      id: 'record-id',
+      formulaResult: null,
+      updatedAt: '2026-07-30T12:00:00.000Z',
+    });
+    relationCountQueryBuilder.getRawOne
+      .mockResolvedValueOnce({ count: '2' })
+      .mockResolvedValue({ count: '3' });
+    globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
+
+    await expect(
+      service.recomputeRecord({
+        workspaceId: 'workspace-id',
+        formulaDefinitionId: 'definition-id',
+        recordId: 'record-id',
+      }),
+    ).resolves.toMatchObject({
+      value: 3,
+      evaluatorVersion: '1.2.0',
+      instructionCount: 2,
+    });
+    expect(relationCountQueryBuilder.leftJoin).toHaveBeenCalledWith(
+      'formulaRecord.people',
+      'formulaRelatedRecord',
+    );
+    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+      formulaResult: 3,
+    });
+    expect(
+      formulaAuthorizationService.assertCanReadDependencies,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      dependencyFieldMetadataIds: ['people-relation-id'],
+      dependencyObjectMetadataIds: ['person-object-id'],
+    });
+
+    recordRepository.update.mockClear();
+    relationCountQueryBuilder.getRawOne.mockResolvedValue({ count: '10001' });
+    await expect(
+      service.recomputeRecord({
+        workspaceId: 'workspace-id',
+        formulaDefinitionId: 'definition-id',
+        recordId: 'record-id',
+      }),
+    ).rejects.toThrow('Formula relation count exceeds the 10000 record limit.');
+    expect(recordRepository.update).toHaveBeenCalledWith('record-id', {
+      formulaResult: null,
     });
   });
 });

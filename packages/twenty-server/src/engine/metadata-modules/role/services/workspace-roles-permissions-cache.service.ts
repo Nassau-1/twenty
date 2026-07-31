@@ -95,7 +95,12 @@ export class WorkspaceRolesPermissionsCacheService extends WorkspaceCacheProvide
       this.getWorkspaceObjectMetadataCollection(workspaceId),
       this.fieldMetadataRepository.find({
         where: { workspaceId },
-        select: ['id', 'objectMetadataId', 'universalIdentifier'],
+        select: [
+          'id',
+          'objectMetadataId',
+          'relationTargetObjectMetadataId',
+          'universalIdentifier',
+        ],
       }),
       this.formulaDefinitionRepository.find(workspaceId, {
         relations: { versions: true },

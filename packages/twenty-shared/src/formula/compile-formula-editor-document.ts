@@ -70,6 +70,13 @@ const inferBinaryType = (
       return { type: 'BOOLEAN', nullable };
     case 'EQUAL':
     case 'NOT_EQUAL':
+      if (left.type === 'RELATION' || right.type === 'RELATION') {
+        throw error(
+          'INCOMPATIBLE_TYPES',
+          'Relations can be used only by supported aggregates.',
+          node,
+        );
+      }
       if (
         left.type !== 'NULL' &&
         right.type !== 'NULL' &&
@@ -105,6 +112,29 @@ const inferCallType = ({
   infer: (node: FormulaNode) => FormulaType;
 }): FormulaType => {
   const argumentTypes = node.arguments.map(infer);
+
+  if (node.functionName === 'count') {
+    if (argumentTypes.length !== 1) {
+      throw error(
+        'ARGUMENT_COUNT_MISMATCH',
+        'count expects exactly one argument.',
+        node,
+      );
+    }
+    if (
+      node.arguments[0].kind !== 'REFERENCE' ||
+      node.arguments[0].reference.kind !== 'RELATION' ||
+      argumentTypes[0].type !== 'RELATION'
+    ) {
+      throw error(
+        'INCOMPATIBLE_TYPES',
+        'count expects a direct relation reference.',
+        node.arguments[0],
+      );
+    }
+
+    return { type: 'NUMBER', nullable: false };
+  }
 
   if (
     node.functionName === 'previousValue' ||
@@ -286,13 +316,15 @@ export const compileFormulaEditorDocument = ({
 
   try {
     const output = infer(parseResult.ast.root);
-    if (output.type === 'NULL') {
+    if (output.type === 'NULL' || output.type === 'RELATION') {
       return {
         status: 'error',
         diagnostics: [
           error(
             'INCOMPATIBLE_TYPES',
-            'Formula output cannot be untyped NULL.',
+            output.type === 'NULL'
+              ? 'Formula output cannot be untyped NULL.'
+              : 'A relation must be consumed by a supported aggregate.',
             parseResult.ast.root,
           ),
         ],

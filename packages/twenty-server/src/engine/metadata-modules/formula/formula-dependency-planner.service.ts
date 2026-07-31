@@ -116,6 +116,21 @@ export class FormulaDependencyPlannerService {
       const upstreamNodeIds = new Set<string>();
 
       for (const dependency of node.dependencies) {
+        if (dependency.kind === 'RELATION') {
+          const relationField = fieldsByUniversalIdentifier.get(
+            dependency.relationFieldMetadataUniversalIdentifier,
+          );
+
+          if (relationField === undefined) {
+            throw new BadRequestException(
+              'A Formula relation dependency does not belong to the selected object.',
+            );
+          }
+
+          dependencyFieldIds.add(relationField.id);
+          continue;
+        }
+
         if (dependency.kind === 'FIELD') {
           const field = fieldsByUniversalIdentifier.get(
             dependency.fieldMetadataUniversalIdentifier,
@@ -163,7 +178,7 @@ export class FormulaDependencyPlannerService {
         }
 
         throw new BadRequestException(
-          'The current Formula planner supports field and Formula dependencies only.',
+          'The current Formula planner supports field, relation, and Formula dependencies only.',
         );
       }
 

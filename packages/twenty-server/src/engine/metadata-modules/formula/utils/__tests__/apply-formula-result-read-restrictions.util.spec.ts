@@ -105,6 +105,60 @@ describe('applyFormulaResultReadRestrictions', () => {
     ).toEqual({ canRead: false });
   });
 
+  it('requires both the relation field and target object to remain readable', () => {
+    const relationDefinition = {
+      ...definitions[0],
+      versions: [
+        {
+          id: 'first-version-id',
+          dependencies: [
+            {
+              kind: 'RELATION' as const,
+              relationFieldMetadataUniversalIdentifier: 'relation-uid',
+            },
+          ],
+        },
+      ],
+    };
+    const relationFields = [
+      ...fields,
+      {
+        id: 'relation-id',
+        objectMetadataId: 'object-id',
+        relationTargetObjectMetadataId: 'person-object-id',
+        universalIdentifier: 'relation-uid',
+      },
+    ];
+    const readablePermissions = createObjectPermissions();
+
+    readablePermissions['person-object-id'] = {
+      ...readablePermissions['object-id'],
+      restrictedFields: {},
+    };
+    expect(
+      applyFormulaResultReadRestrictions({
+        definitions: [relationDefinition],
+        fields: relationFields,
+        objectsPermissions: readablePermissions,
+      }),
+    ).toEqual([]);
+
+    const deniedPermissions = createObjectPermissions();
+
+    deniedPermissions['person-object-id'] = {
+      ...deniedPermissions['object-id'],
+      canReadObjectRecords: false,
+      restrictedFields: {},
+    };
+    expect(
+      applyFormulaResultReadRestrictions({
+        definitions: [relationDefinition],
+        fields: relationFields,
+        objectsPermissions: deniedPermissions,
+      }),
+    ).toEqual(['first-output-id']);
+  });
+
   it('fails closed instead of representing unsupported paths as null', () => {
     const objectsPermissions = createObjectPermissions();
     const unsupportedDefinitions = [
