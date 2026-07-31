@@ -8,6 +8,8 @@ import {
 import { STANDARD_OBJECTS } from 'twenty-shared/metadata';
 import { type Repository } from 'typeorm';
 
+import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
+import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { FieldPermissionEntity } from 'src/engine/metadata-modules/object-permission/field-permission/field-permission.entity';
 import { ObjectPermissionEntity } from 'src/engine/metadata-modules/object-permission/object-permission.entity';
@@ -103,6 +105,12 @@ describe('WorkspaceRolesPermissionsCacheService', () => {
     objectMetadataRepository = {
       find: jest.fn().mockResolvedValue(workspaceObjectMetadataFixture),
     };
+    const fieldMetadataRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
+    const formulaDefinitionRepository = {
+      find: jest.fn().mockResolvedValue([]),
+    };
 
     objectPermissionRepository = {
       find: jest.fn().mockResolvedValue([]),
@@ -127,6 +135,14 @@ describe('WorkspaceRolesPermissionsCacheService', () => {
         {
           provide: getRepositoryToken(ObjectMetadataEntity),
           useValue: objectMetadataRepository,
+        },
+        {
+          provide: getRepositoryToken(FieldMetadataEntity),
+          useValue: fieldMetadataRepository,
+        },
+        {
+          provide: getWorkspaceScopedRepositoryToken(FormulaDefinitionEntity),
+          useValue: formulaDefinitionRepository,
         },
         {
           provide: getWorkspaceScopedRepositoryToken(RoleEntity),

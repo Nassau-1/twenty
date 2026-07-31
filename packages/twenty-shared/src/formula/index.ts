@@ -52,4 +52,14 @@ export {
   FORMULA_AST_VERSION,
   FORMULA_EVALUATOR_VERSION,
 } from './formula-types';
+export {
+  FORMULA_SECURITY_LIMITS,
+  canQueryFormulaResult,
+  decideFormulaResultAccess,
+} from './formula-permission-policy';
+export type {
+  FormulaDependencyAccess,
+  FormulaMaterializationState,
+  FormulaResultAccessDecision,
+} from './formula-permission-policy';
 export { parseFormulaEditorDocument } from './parse-formula-editor-document';

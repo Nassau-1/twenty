@@ -6,6 +6,7 @@ import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
 import { FormulaVersionEntity } from 'src/engine/metadata-modules/formula/entities/formula-version.entity';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
+import { FormulaAuthorizationService } from 'src/engine/metadata-modules/formula/formula-authorization.service';
 import { FormulaController } from 'src/engine/metadata-modules/formula/formula.controller';
 import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
@@ -15,10 +16,12 @@ import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadat
 import { PermissionsModule } from 'src/engine/metadata-modules/permissions/permissions.module';
 import { provideWorkspaceScopedRepository } from 'src/engine/twenty-orm/workspace-scoped-repository/provide-workspace-scoped-repository';
 import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/workspace-cache-storage.module';
+import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache.module';
 
 @Module({
   imports: [
     TokenModule,
+    WorkspaceCacheModule,
     WorkspaceCacheStorageModule,
     PermissionsModule,
     TypeOrmModule.forFeature([
@@ -31,6 +34,7 @@ import { WorkspaceCacheStorageModule } from 'src/engine/workspace-cache-storage/
   controllers: [FormulaController],
   providers: [
     FormulaApplicationService,
+    FormulaAuthorizationService,
     FormulaDependencyPlannerService,
     FormulaMetadataService,
     FormulaReactiveService,

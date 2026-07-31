@@ -9,6 +9,7 @@ import {
   compileFormulaEditorDocument,
   type CompiledFormula,
   evaluateCompiledFormula,
+  FORMULA_SECURITY_LIMITS,
   type FormulaEditorDocument,
   type FormulaValue,
 } from 'twenty-shared/formula';
@@ -18,6 +19,7 @@ import { type QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialE
 
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { FormulaAuthorizationService } from 'src/engine/metadata-modules/formula/formula-authorization.service';
 import {
   type FormulaDependencyPlan,
   FormulaDependencyPlannerService,
@@ -47,6 +49,7 @@ export class FormulaApplicationService {
     @InjectRepository(ObjectMetadataEntity)
     private readonly objectMetadataRepository: Repository<ObjectMetadataEntity>,
     private readonly formulaDependencyPlannerService: FormulaDependencyPlannerService,
+    private readonly formulaAuthorizationService: FormulaAuthorizationService,
     private readonly formulaMetadataService: FormulaMetadataService,
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
   ) {}
@@ -92,17 +95,45 @@ export class FormulaApplicationService {
     compiledFormula: CompiledFormula;
     dependencyPlan: FormulaDependencyPlan;
   }> {
-    const [objectMetadata, fields] = await Promise.all([
-      this.objectMetadataRepository.findOne({
-        where: { id: objectMetadataId, workspaceId },
-      }),
-      this.fieldMetadataRepository.find({
-        where: { objectMetadataId, workspaceId },
-      }),
-    ]);
+    if (
+      document.references.length >
+      FORMULA_SECURITY_LIMITS.maxDependenciesPerFormula
+    ) {
+      throw new BadRequestException(
+        `A Formula cannot have more than ${FORMULA_SECURITY_LIMITS.maxDependenciesPerFormula} dependencies.`,
+      );
+    }
+
+    const [objectMetadata, fields, objectFormulaCount, workspaceFormulaCount] =
+      await Promise.all([
+        this.objectMetadataRepository.findOne({
+          where: { id: objectMetadataId, workspaceId },
+        }),
+        this.fieldMetadataRepository.find({
+          where: { objectMetadataId, workspaceId },
+        }),
+        this.formulaMetadataService.countDefinitions({
+          workspaceId,
+          objectMetadataId,
+        }),
+        this.formulaMetadataService.countDefinitions({ workspaceId }),
+      ]);
 
     if (objectMetadata === null) {
       throw new NotFoundException('Formula object metadata was not found.');
+    }
+    if (objectFormulaCount >= FORMULA_SECURITY_LIMITS.maxDefinitionsPerObject) {
+      throw new BadRequestException(
+        `An object cannot have more than ${FORMULA_SECURITY_LIMITS.maxDefinitionsPerObject} Formulas.`,
+      );
+    }
+    if (
+      workspaceFormulaCount >=
+      FORMULA_SECURITY_LIMITS.maxDefinitionsPerWorkspace
+    ) {
+      throw new BadRequestException(
+        `A workspace cannot have more than ${FORMULA_SECURITY_LIMITS.maxDefinitionsPerWorkspace} Formulas.`,
+      );
     }
 
     const outputField = fields.find(({ id }) => id === outputFieldMetadataId);
@@ -194,6 +225,13 @@ export class FormulaApplicationService {
         outputFieldMetadataId,
         dependencies: compileResult.compiledFormula.dependencies,
       });
+
+    await this.formulaAuthorizationService.assertCanReadDependencies({
+      workspaceId,
+      objectMetadataId,
+      dependencyFieldMetadataIds:
+        dependencyPlan.directDependencyFieldMetadataIds,
+    });
 
     return {
       compiledFormula: compileResult.compiledFormula,

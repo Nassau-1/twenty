@@ -118,6 +118,7 @@ export class PermissionsService {
         [PermissionFlagType.WORKSPACE_MEMBERS]: false,
         [PermissionFlagType.ROLES]: false,
         [PermissionFlagType.DATA_MODEL]: false,
+        [PermissionFlagType.FORMULAS]: false,
         [PermissionFlagType.SECURITY]: false,
         [PermissionFlagType.WORKFLOWS]: false,
         [PermissionFlagType.APPLICATIONS]: false,

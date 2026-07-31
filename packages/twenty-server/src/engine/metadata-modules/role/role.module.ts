@@ -12,6 +12,9 @@ import { AiAgentRoleModule } from 'src/engine/metadata-modules/ai/ai-agent-role/
 import { FlatAgentModule } from 'src/engine/metadata-modules/flat-agent/flat-agent.module';
 import { WorkspaceManyOrAllFlatEntityMapsCacheModule } from 'src/engine/metadata-modules/flat-entity/services/workspace-many-or-all-flat-entity-maps-cache.module';
 import { WorkspaceFlatRoleTargetMapCacheService } from 'src/engine/metadata-modules/flat-role-target/services/workspace-flat-role-target-map-cache.service';
+import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
+import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { FormulaVersionEntity } from 'src/engine/metadata-modules/formula/entities/formula-version.entity';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { FieldPermissionEntity } from 'src/engine/metadata-modules/object-permission/field-permission/field-permission.entity';
 import { ObjectPermissionEntity } from 'src/engine/metadata-modules/object-permission/object-permission.entity';
@@ -46,6 +49,9 @@ import { WorkspaceMigrationModule } from 'src/engine/workspace-manager/workspace
       FieldPermissionEntity,
       UserWorkspaceEntity,
       ObjectMetadataEntity,
+      FieldMetadataEntity,
+      FormulaDefinitionEntity,
+      FormulaVersionEntity,
       RowLevelPermissionPredicateEntity,
       RowLevelPermissionPredicateGroupEntity,
     ]),
@@ -73,6 +79,7 @@ import { WorkspaceMigrationModule } from 'src/engine/workspace-manager/workspace
     WorkspaceMigrationGraphqlApiExceptionInterceptor,
     WorkspaceRolesPermissionsCacheService,
     provideWorkspaceScopedRepository(RoleEntity),
+    provideWorkspaceScopedRepository(FormulaDefinitionEntity),
     provideWorkspaceScopedRepository(RoleTargetEntity),
     provideWorkspaceScopedRepository(AgentEntity),
     provideWorkspaceScopedRepository(ObjectPermissionEntity),

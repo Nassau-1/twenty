@@ -9,6 +9,7 @@ import { type Repository } from 'typeorm';
 
 import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
 import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { FormulaAuthorizationService } from 'src/engine/metadata-modules/formula/formula-authorization.service';
 import { FormulaApplicationService } from 'src/engine/metadata-modules/formula/formula-application.service';
 import { FormulaDependencyPlannerService } from 'src/engine/metadata-modules/formula/formula-dependency-planner.service';
 import { FormulaMetadataService } from 'src/engine/metadata-modules/formula/formula-metadata.service';
@@ -63,11 +64,15 @@ describe('FormulaApplicationService', () => {
     findOne: jest.fn(),
   };
   const formulaMetadataService = {
+    countDefinitions: jest.fn(),
     createDefinitionWithActiveVersion: jest.fn(),
     findById: jest.fn(),
   };
   const formulaDependencyPlannerService = {
     planProspectiveVersion: jest.fn(),
+  };
+  const formulaAuthorizationService = {
+    assertCanReadDependencies: jest.fn(),
   };
   const recordRepository = {
     findOne: jest.fn(),
@@ -81,6 +86,7 @@ describe('FormulaApplicationService', () => {
     fieldMetadataRepository as unknown as Repository<FieldMetadataEntity>,
     objectMetadataRepository as unknown as Repository<ObjectMetadataEntity>,
     formulaDependencyPlannerService as unknown as FormulaDependencyPlannerService,
+    formulaAuthorizationService as unknown as FormulaAuthorizationService,
     formulaMetadataService as unknown as FormulaMetadataService,
     globalWorkspaceOrmManager as unknown as GlobalWorkspaceOrmManager,
   );
@@ -89,6 +95,7 @@ describe('FormulaApplicationService', () => {
     jest.clearAllMocks();
     objectMetadataRepository.findOne.mockResolvedValue(objectMetadata);
     fieldMetadataRepository.find.mockResolvedValue([revenueField, outputField]);
+    formulaMetadataService.countDefinitions.mockResolvedValue(0);
     formulaDependencyPlannerService.planProspectiveVersion.mockResolvedValue({
       candidateOutputFieldMetadataId: 'output-id',
       candidateDepth: 1,
@@ -139,6 +146,13 @@ describe('FormulaApplicationService', () => {
           fieldMetadataUniversalIdentifier: 'revenue-field',
         },
       ],
+    });
+    expect(
+      formulaAuthorizationService.assertCanReadDependencies,
+    ).toHaveBeenCalledWith({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      dependencyFieldMetadataIds: ['revenue-id'],
     });
   });
 

@@ -16,6 +16,9 @@ import { IsNull, Repository } from 'typeorm';
 
 import { WorkspaceCacheProvider } from 'src/engine/workspace-cache/interfaces/workspace-cache-provider.service';
 
+import { FieldMetadataEntity } from 'src/engine/metadata-modules/field-metadata/field-metadata.entity';
+import { FormulaDefinitionEntity } from 'src/engine/metadata-modules/formula/entities/formula-definition.entity';
+import { applyFormulaResultReadRestrictions } from 'src/engine/metadata-modules/formula/utils/apply-formula-result-read-restrictions.util';
 import { ObjectMetadataEntity } from 'src/engine/metadata-modules/object-metadata/object-metadata.entity';
 import { FieldPermissionEntity } from 'src/engine/metadata-modules/object-permission/field-permission/field-permission.entity';
 import { ObjectPermissionEntity } from 'src/engine/metadata-modules/object-permission/object-permission.entity';
@@ -42,6 +45,10 @@ export class WorkspaceRolesPermissionsCacheService extends WorkspaceCacheProvide
   constructor(
     @InjectRepository(ObjectMetadataEntity)
     private readonly objectMetadataRepository: Repository<ObjectMetadataEntity>,
+    @InjectRepository(FieldMetadataEntity)
+    private readonly fieldMetadataRepository: Repository<FieldMetadataEntity>,
+    @InjectWorkspaceScopedRepository(FormulaDefinitionEntity)
+    private readonly formulaDefinitionRepository: WorkspaceScopedRepository<FormulaDefinitionEntity>,
     @InjectWorkspaceScopedRepository(RoleEntity)
     private readonly roleRepository: WorkspaceScopedRepository<RoleEntity>,
     @InjectWorkspaceScopedRepository(ObjectPermissionEntity)
@@ -69,6 +76,8 @@ export class WorkspaceRolesPermissionsCacheService extends WorkspaceCacheProvide
       rowLevelPermissionPredicates,
       rowLevelPermissionPredicateGroups,
       workspaceObjectMetadataCollection,
+      workspaceFieldMetadataCollection,
+      formulaDefinitions,
     ] = await Promise.all([
       this.roleRepository.find(workspaceId),
       this.objectPermissionRepository.find(workspaceId),
@@ -84,6 +93,13 @@ export class WorkspaceRolesPermissionsCacheService extends WorkspaceCacheProvide
         where: { deletedAt: IsNull() },
       }),
       this.getWorkspaceObjectMetadataCollection(workspaceId),
+      this.fieldMetadataRepository.find({
+        where: { workspaceId },
+        select: ['id', 'objectMetadataId', 'universalIdentifier'],
+      }),
+      this.formulaDefinitionRepository.find(workspaceId, {
+        relations: { versions: true },
+      }),
     ]);
 
     const objectPermissionsByRoleId =
@@ -243,6 +259,12 @@ export class WorkspaceRolesPermissionsCacheService extends WorkspaceCacheProvide
             ),
         };
       }
+
+      applyFormulaResultReadRestrictions({
+        definitions: formulaDefinitions,
+        fields: workspaceFieldMetadataCollection,
+        objectsPermissions: objectRecordsPermissions,
+      });
 
       permissionsByRoleId[role.id] = objectRecordsPermissions;
     }
