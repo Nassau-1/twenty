@@ -14,6 +14,7 @@ import {
   type FormulaHistoricalFunctionName,
   type FormulaHistoricalValueResolution,
   type FormulaNode,
+  type FormulaOutputType,
   type FormulaValue,
 } from 'twenty-shared/formula';
 import { FieldMetadataType } from 'twenty-shared/types';
@@ -66,7 +67,7 @@ type PreviewFormulaArgs = {
 type FormulaPreviewResult = {
   recordId: string;
   output: CompiledFormula['output'];
-  value: number | null;
+  value: FormulaScalarValue;
   evaluatorVersion: string;
   instructionCount: number;
 };
@@ -76,7 +77,7 @@ type FormulaRecomputeResult = {
   formulaVersionId: string;
   recordId: string;
   outputFieldName: string;
-  value: number | null;
+  value: FormulaScalarValue;
   evaluatorVersion: string;
   instructionCount: number;
   historyReceiptId: string;
@@ -87,6 +88,49 @@ type HistoricalLookup = {
   functionName: FormulaHistoricalFunctionName;
   fieldMetadataUniversalIdentifier: string;
   at?: string;
+};
+
+type FormulaScalarValue = boolean | number | string | null;
+
+const getFormulaOutputTypeForField = (
+  field: Pick<FieldMetadataEntity, 'type'>,
+): FormulaOutputType | null => {
+  switch (field.type) {
+    case FieldMetadataType.NUMBER:
+      return 'NUMBER';
+    case FieldMetadataType.TEXT:
+      return 'TEXT';
+    case FieldMetadataType.BOOLEAN:
+      return 'BOOLEAN';
+    default:
+      return null;
+  }
+};
+
+const getFormulaValueForField = (
+  field: Pick<FieldMetadataEntity, 'type'>,
+  rawValue: unknown,
+): FormulaValue | undefined => {
+  if (rawValue === null || rawValue === undefined) {
+    return { type: 'NULL', value: null };
+  }
+
+  switch (getFormulaOutputTypeForField(field)) {
+    case 'NUMBER':
+      return typeof rawValue === 'number' && Number.isFinite(rawValue)
+        ? { type: 'NUMBER', value: rawValue }
+        : undefined;
+    case 'TEXT':
+      return typeof rawValue === 'string'
+        ? { type: 'TEXT', value: rawValue }
+        : undefined;
+    case 'BOOLEAN':
+      return typeof rawValue === 'boolean'
+        ? { type: 'BOOLEAN', value: rawValue }
+        : undefined;
+    default:
+      return undefined;
+  }
 };
 
 const historicalLookupKey = ({
@@ -291,9 +335,9 @@ export class FormulaApplicationService {
         reference.fieldMetadataUniversalIdentifier,
       );
 
-      if (field === undefined || field.type !== FieldMetadataType.NUMBER) {
+      if (field === undefined || getFormulaOutputTypeForField(field) === null) {
         throw new BadRequestException(
-          'Formula preview supports NUMBER source fields only.',
+          'Formula preview supports NUMBER, TEXT, and BOOLEAN source fields only.',
         );
       }
     }
@@ -325,11 +369,14 @@ export class FormulaApplicationService {
           reference.fieldMetadataUniversalIdentifier,
         );
 
-        return field?.type === FieldMetadataType.NUMBER
+        const outputType =
+          field === undefined ? null : getFormulaOutputTypeForField(field);
+
+        return outputType !== null
           ? {
               status: 'success',
-              type: 'NUMBER',
-              nullable: field.isNullable !== false,
+              type: outputType,
+              nullable: field?.isNullable !== false,
             }
           : { status: 'error', reason: 'NOT_FOUND' };
       },
@@ -340,12 +387,6 @@ export class FormulaApplicationService {
         message: 'Formula compilation failed.',
         diagnostics: compileResult.diagnostics,
       });
-    }
-
-    if (compileResult.compiledFormula.output.type !== 'NUMBER') {
-      throw new BadRequestException(
-        'Formula preview requires a NUMBER result.',
-      );
     }
 
     const dependencyFields = compileResult.compiledFormula.dependencies.flatMap(
@@ -529,13 +570,9 @@ export class FormulaApplicationService {
             const rawValue =
               field === undefined ? undefined : record[field.name];
 
-            if (rawValue === null || rawValue === undefined) {
-              return { type: 'NULL', value: null };
-            }
-
-            return typeof rawValue === 'number' && Number.isFinite(rawValue)
-              ? { type: 'NUMBER', value: rawValue }
-              : undefined;
+            return field === undefined
+              ? undefined
+              : getFormulaValueForField(field, rawValue);
           },
           resolveHistoricalValue: (request) => {
             if (request.reference.kind !== 'FIELD') {
@@ -567,11 +604,11 @@ export class FormulaApplicationService {
         }
 
         if (
-          evaluation.value.type !== 'NUMBER' &&
-          evaluation.value.type !== 'NULL'
+          evaluation.value.type !== 'NULL' &&
+          evaluation.value.type !== compiledFormula.output.type
         ) {
           throw new BadRequestException(
-            'Formula preview result does not match a NUMBER output.',
+            'Formula preview result does not match its typed output.',
           );
         }
 
@@ -659,9 +696,11 @@ export class FormulaApplicationService {
     if (outputField === undefined) {
       throw new NotFoundException('Formula output field was not found.');
     }
-    if (outputField.type !== FieldMetadataType.NUMBER) {
+    const outputFieldFormulaType = getFormulaOutputTypeForField(outputField);
+
+    if (outputFieldFormulaType === null) {
       throw new BadRequestException(
-        'The first Formula slice requires a NUMBER output field.',
+        'Formula output fields must be NUMBER, TEXT, or BOOLEAN.',
       );
     }
     if (outputField.isUIEditable !== false) {
@@ -717,9 +756,9 @@ export class FormulaApplicationService {
           'A Formula cannot reference its own output field.',
         );
       }
-      if (field.type !== FieldMetadataType.NUMBER) {
+      if (getFormulaOutputTypeForField(field) === null) {
         throw new BadRequestException(
-          'The first Formula slice supports NUMBER source fields only.',
+          'Formula supports NUMBER, TEXT, and BOOLEAN source fields only.',
         );
       }
     }
@@ -750,11 +789,14 @@ export class FormulaApplicationService {
           reference.fieldMetadataUniversalIdentifier,
         );
 
-        return field?.type === FieldMetadataType.NUMBER
+        const outputType =
+          field === undefined ? null : getFormulaOutputTypeForField(field);
+
+        return outputType !== null
           ? {
               status: 'success',
-              type: 'NUMBER',
-              nullable: field.isNullable !== false,
+              type: outputType,
+              nullable: field?.isNullable !== false,
             }
           : { status: 'error', reason: 'NOT_FOUND' };
       },
@@ -766,9 +808,9 @@ export class FormulaApplicationService {
         diagnostics: compileResult.diagnostics,
       });
     }
-    if (compileResult.compiledFormula.output.type !== 'NUMBER') {
+    if (compileResult.compiledFormula.output.type !== outputFieldFormulaType) {
       throw new BadRequestException(
-        'The first Formula slice requires a NUMBER result.',
+        `Formula result type ${compileResult.compiledFormula.output.type} does not match the ${outputFieldFormulaType} output field.`,
       );
     }
 
@@ -896,6 +938,16 @@ export class FormulaApplicationService {
         nullable: activeVersion.isNullable,
       },
     };
+    const outputFieldFormulaType = getFormulaOutputTypeForField(outputField);
+
+    if (
+      outputFieldFormulaType === null ||
+      outputFieldFormulaType !== compiledFormula.output.type
+    ) {
+      throw new BadRequestException(
+        'Formula result type does not match its output field.',
+      );
+    }
     const relationDependencies = compiledFormula.dependencies.filter(
       (dependency) => dependency.kind === 'RELATION',
     );
@@ -972,7 +1024,7 @@ export class FormulaApplicationService {
             throw new NotFoundException('Formula record was not found.');
           }
 
-          const updateMaterializedValue = async (value: number | null) => {
+          const updateMaterializedValue = async (value: FormulaScalarValue) => {
             await repository
               .createQueryBuilder('formulaRecord')
               .update()
@@ -1120,19 +1172,7 @@ export class FormulaApplicationService {
                   return undefined;
                 }
 
-                const rawValue = record[field.name];
-
-                if (rawValue === null || rawValue === undefined) {
-                  return { type: 'NULL', value: null };
-                }
-                if (
-                  typeof rawValue !== 'number' ||
-                  !Number.isFinite(rawValue)
-                ) {
-                  return undefined;
-                }
-
-                return { type: 'NUMBER', value: rawValue };
+                return getFormulaValueForField(field, record[field.name]);
               },
               resolveHistoricalValue: (request) => {
                 if (request.reference.kind !== 'FIELD') {
@@ -1192,11 +1232,11 @@ export class FormulaApplicationService {
             });
           }
           if (
-            evaluation.value.type !== 'NUMBER' &&
-            evaluation.value.type !== 'NULL'
+            evaluation.value.type !== 'NULL' &&
+            evaluation.value.type !== compiledFormula.output.type
           ) {
             throw new BadRequestException(
-              'Formula result does not match its NUMBER output field.',
+              'Formula result does not match its typed output field.',
             );
           }
 

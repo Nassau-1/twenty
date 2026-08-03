@@ -67,6 +67,33 @@ const peopleRelationField = {
   isNullable: true,
   isUIEditable: true,
 } as FieldMetadataEntity;
+const nameField = {
+  id: 'name-id',
+  workspaceId: 'workspace-id',
+  objectMetadataId: 'object-id',
+  universalIdentifier: 'name-field',
+  name: 'name',
+  type: FieldMetadataType.TEXT,
+  isNullable: false,
+  isUIEditable: true,
+} as FieldMetadataEntity;
+const customerField = {
+  id: 'customer-id',
+  workspaceId: 'workspace-id',
+  objectMetadataId: 'object-id',
+  universalIdentifier: 'customer-field',
+  name: 'isCustomer',
+  type: FieldMetadataType.BOOLEAN,
+  isNullable: false,
+  isUIEditable: true,
+} as FieldMetadataEntity;
+const textOutputField = {
+  ...outputField,
+  id: 'text-output-id',
+  universalIdentifier: 'text-output-field',
+  name: 'formulaText',
+  type: FieldMetadataType.TEXT,
+} as FieldMetadataEntity;
 
 describe('FormulaApplicationService', () => {
   const fieldMetadataRepository = {
@@ -220,6 +247,48 @@ describe('FormulaApplicationService', () => {
     });
   });
 
+  it('compiles and persists a text Formula against a read-only text output', async () => {
+    const textDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'upper(Name)',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 6, end: 10 },
+        },
+      ],
+    };
+
+    fieldMetadataRepository.find.mockResolvedValue([
+      nameField,
+      textOutputField,
+    ]);
+    formulaMetadataService.createDefinitionWithActiveVersion.mockResolvedValue({
+      id: 'text-definition-id',
+    });
+
+    await service.createFormula({
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      outputFieldMetadataId: 'text-output-id',
+      document: textDocument,
+      reason: 'typed scalar expansion',
+    });
+
+    expect(
+      formulaMetadataService.createDefinitionWithActiveVersion,
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outputFieldMetadataId: 'text-output-id',
+        compiledFormula: expect.objectContaining({
+          output: { type: 'TEXT', nullable: false },
+        }),
+      }),
+    );
+  });
+
   it('previews a prospective Formula against an existing record without writing', async () => {
     recordRepository.findOne.mockResolvedValue({
       id: 'record-id',
@@ -250,6 +319,53 @@ describe('FormulaApplicationService', () => {
       objectMetadataId: 'object-id',
       dependencyFieldMetadataIds: ['revenue-id'],
       dependencyObjectMetadataIds: [],
+    });
+  });
+
+  it('previews typed text and boolean sources', async () => {
+    const typedDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'if(IsCustomer, upper(trim(Name)), lower(Name))',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'customer-field',
+          label: 'IsCustomer',
+          span: { start: 3, end: 13 },
+        },
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 26, end: 30 },
+        },
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 40, end: 44 },
+        },
+      ],
+    };
+
+    fieldMetadataRepository.find.mockResolvedValue([nameField, customerField]);
+    recordRepository.findOne.mockResolvedValue({
+      id: 'record-id',
+      name: '  Formula Live Proof  ',
+      isCustomer: true,
+    });
+    globalWorkspaceOrmManager.getRepository.mockResolvedValue(recordRepository);
+
+    await expect(
+      service.previewFormula({
+        workspaceId: 'workspace-id',
+        objectMetadataId: 'object-id',
+        recordId: 'record-id',
+        document: typedDocument,
+      }),
+    ).resolves.toMatchObject({
+      output: { type: 'TEXT', nullable: false },
+      value: 'FORMULA LIVE PROOF',
     });
   });
 
@@ -392,7 +508,7 @@ describe('FormulaApplicationService', () => {
       recordId: 'record-id',
       outputFieldName: 'formulaResult',
       value: 250,
-      evaluatorVersion: '1.2.0',
+      evaluatorVersion: '1.3.0',
       instructionCount: 3,
     });
     expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
@@ -409,6 +525,75 @@ describe('FormulaApplicationService', () => {
         afterValue: 250,
       }),
     );
+  });
+
+  it('materializes a typed text Formula into a read-only text field', async () => {
+    const textDocument: FormulaEditorDocument = {
+      version: 1,
+      source: 'upper(trim(Name))',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 11, end: 15 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: textDocument,
+      resolveReference: () => ({
+        status: 'success',
+        type: 'TEXT',
+        nullable: false,
+      }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected text Formula compilation to succeed.');
+    }
+
+    fieldMetadataRepository.find.mockResolvedValue([
+      nameField,
+      textOutputField,
+    ]);
+    formulaMetadataService.findById.mockResolvedValue({
+      id: 'definition-id',
+      workspaceId: 'workspace-id',
+      objectMetadataId: 'object-id',
+      outputFieldMetadataId: 'text-output-id',
+      activeVersionId: 'version-id',
+      versions: [
+        {
+          id: 'version-id',
+          ast: compileResult.compiledFormula.ast,
+          dependencies: compileResult.compiledFormula.dependencies,
+          outputType: 'TEXT',
+          isNullable: false,
+        },
+      ],
+    } as FormulaDefinitionEntity);
+    recordRepository.findOne.mockResolvedValue({
+      id: 'record-id',
+      name: '  formula live proof  ',
+      formulaText: null,
+      updatedAt: '2026-08-03T12:00:00.000Z',
+    });
+
+    await expect(
+      service.recomputeRecord({
+        workspaceId: 'workspace-id',
+        formulaDefinitionId: 'definition-id',
+        recordId: 'record-id',
+      }),
+    ).resolves.toMatchObject({
+      outputFieldName: 'formulaText',
+      value: 'FORMULA LIVE PROOF',
+      evaluatorVersion: '1.3.0',
+    });
+    expect(relationCountQueryBuilder.set).toHaveBeenCalledWith({
+      formulaText: 'FORMULA LIVE PROOF',
+    });
   });
 
   it('materializes a previousValue Formula from authoritative history', async () => {
@@ -475,7 +660,7 @@ describe('FormulaApplicationService', () => {
       }),
     ).resolves.toMatchObject({
       value: 200,
-      evaluatorVersion: '1.2.0',
+      evaluatorVersion: '1.3.0',
       historyAppended: true,
     });
     expect(formulaHistoryService.previousValue).toHaveBeenCalledWith({
@@ -555,7 +740,7 @@ describe('FormulaApplicationService', () => {
       }),
     ).resolves.toMatchObject({
       value: 3,
-      evaluatorVersion: '1.2.0',
+      evaluatorVersion: '1.3.0',
       instructionCount: 2,
     });
     expect(relationCountQueryBuilder.leftJoin).toHaveBeenCalledWith(

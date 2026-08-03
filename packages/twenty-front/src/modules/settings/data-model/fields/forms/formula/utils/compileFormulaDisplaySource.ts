@@ -1,4 +1,5 @@
 import { type FieldMetadataItem } from '@/object-metadata/types/FieldMetadataItem';
+import { getFormulaTypeFromFieldMetadataType } from '@/settings/data-model/fields/forms/formula/utils/formulaFieldTypeMappings';
 import {
   compileFormulaEditorDocument,
   FORMULA_EDITOR_DOCUMENT_VERSION,
@@ -242,15 +243,17 @@ export const compileFormulaDisplaySource = ({
         ? undefined
         : fieldsByUniversalIdentifier.get(universalIdentifier);
 
-    if (field?.type === FieldMetadataType.RELATION) {
-      return { status: 'success', type: 'RELATION', nullable: false };
-    }
+    const formulaType =
+      field === undefined
+        ? null
+        : getFormulaTypeFromFieldMetadataType(field.type);
 
-    if (field?.type === FieldMetadataType.NUMBER) {
+    if (formulaType !== null) {
       return {
         status: 'success',
-        type: 'NUMBER',
-        nullable: field.isNullable !== false,
+        type: formulaType,
+        nullable:
+          formulaType === 'RELATION' ? false : field?.isNullable !== false,
       };
     }
 
@@ -274,20 +277,6 @@ export const compileFormulaDisplaySource = ({
           displaySourceLength: displaySource.length,
         }),
       })),
-    };
-  }
-
-  if (compileResult.compiledFormula.output.type !== 'NUMBER') {
-    return {
-      status: 'error',
-      document: buildResult.document,
-      diagnostics: [
-        {
-          code: 'INCOMPATIBLE_TYPES',
-          message: 'Formula output must be a Number.',
-          span: { start: 0, end: displaySource.length },
-        },
-      ],
     };
   }
 

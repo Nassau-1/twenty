@@ -20,6 +20,22 @@ const relationField = {
   type: FieldMetadataType.RELATION,
 } as FieldMetadataItem;
 
+const textField = {
+  id: 'name-id',
+  universalIdentifier: 'name-universal-id',
+  label: 'Company Name',
+  type: FieldMetadataType.TEXT,
+  isNullable: false,
+} as FieldMetadataItem;
+
+const booleanField = {
+  id: 'customer-id',
+  universalIdentifier: 'customer-universal-id',
+  label: 'Customer',
+  type: FieldMetadataType.BOOLEAN,
+  isNullable: false,
+} as FieldMetadataItem;
+
 describe('compileFormulaDisplaySource', () => {
   it('converts visible field chips to stable backend references', () => {
     expect(
@@ -98,6 +114,25 @@ describe('compileFormulaDisplaySource', () => {
       status: 'success',
       compiledFormula: {
         output: { type: 'NUMBER', nullable: false },
+      },
+    });
+  });
+
+  it('compiles text and boolean sources with typed output', () => {
+    const result = compileFormulaDisplaySource({
+      displaySource:
+        'if({Customer}, upper(trim({Company Name})), lower({Company Name}))',
+      sourceFields: [textField, booleanField],
+    });
+
+    if (result.status === 'error') {
+      throw new Error(JSON.stringify(result.diagnostics));
+    }
+
+    expect(result).toMatchObject({
+      status: 'success',
+      compiledFormula: {
+        output: { type: 'TEXT', nullable: false },
       },
     });
   });
