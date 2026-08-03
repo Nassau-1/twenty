@@ -14,7 +14,10 @@ import {
   planFormulaMetadata,
 } from '@/settings/data-model/fields/forms/formula/services/formulaMetadataApi';
 import { compileFormulaDisplaySource } from '@/settings/data-model/fields/forms/formula/utils/compileFormulaDisplaySource';
-import { getFieldMetadataTypeFromFormulaOutputType } from '@/settings/data-model/fields/forms/formula/utils/formulaFieldTypeMappings';
+import {
+  getFieldMetadataTypeFromFormulaOutputType,
+  getFormulaOutputFieldFormDefaults,
+} from '@/settings/data-model/fields/forms/formula/utils/formulaFieldTypeMappings';
 import { settingsFieldFormSchema } from '@/settings/data-model/fields/forms/validation-schemas/settingsFieldFormSchema';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
@@ -159,12 +162,30 @@ export const SettingsObjectNewFieldConfigure = () => {
       : FieldMetadataType.NUMBER;
 
   useEffect(() => {
-    if (!isFormulaField) {
+    if (!isFormulaField || formulaCompileResult.status !== 'success') {
       return;
     }
 
-    formConfig.setValue('type', formulaOutputFieldType);
-  }, [formConfig, formulaOutputFieldType, isFormulaField]);
+    if (formConfig.getValues('type') === formulaOutputFieldType) {
+      formConfig.setValue('type', formulaOutputFieldType, {
+        shouldValidate: true,
+      });
+      return;
+    }
+
+    const outputDefaults =
+      getFormulaOutputFieldFormDefaults(formulaOutputFieldType);
+
+    Object.entries(outputDefaults).forEach(([key, value]) => {
+      formConfig.setValue(key, value, { shouldDirty: true });
+    });
+    void formConfig.trigger();
+  }, [
+    formConfig,
+    formulaCompileResult.status,
+    formulaOutputFieldType,
+    isFormulaField,
+  ]);
 
   if (!isDefined(activeObjectMetadataItem)) return null;
 
