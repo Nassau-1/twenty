@@ -60,6 +60,89 @@ describe('compileFormulaEditorDocument and evaluateCompiledFormula', () => {
     });
   });
 
+  it('compiles and evaluates text and boolean field references', () => {
+    const typedDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'if(IsCustomer, upper(trim(Name)), lower(Name))',
+      references: [
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'customer-field',
+          label: 'IsCustomer',
+          span: { start: 3, end: 13 },
+        },
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 26, end: 30 },
+        },
+        {
+          kind: 'FIELD',
+          fieldMetadataUniversalIdentifier: 'name-field',
+          label: 'Name',
+          span: { start: 40, end: 44 },
+        },
+      ],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: typedDocument,
+      resolveReference: (reference) =>
+        reference.kind === 'FIELD' &&
+        reference.fieldMetadataUniversalIdentifier === 'customer-field'
+          ? { status: 'success', type: 'BOOLEAN', nullable: false }
+          : { status: 'success', type: 'TEXT', nullable: false },
+    });
+
+    expect(compileResult).toMatchObject({
+      status: 'success',
+      compiledFormula: { output: { type: 'TEXT', nullable: false } },
+    });
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected typed Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: (reference) =>
+          reference.kind === 'FIELD' &&
+          reference.fieldMetadataUniversalIdentifier === 'customer-field'
+            ? { type: 'BOOLEAN', value: true }
+            : { type: 'TEXT', value: '  Acme  ' },
+      }),
+    ).toMatchObject({
+      status: 'success',
+      value: { type: 'TEXT', value: 'ACME' },
+    });
+  });
+
+  it('evaluates bounded scalar helper functions', () => {
+    const helperDocument: FormulaEditorDocument = {
+      version: FORMULA_EDITOR_DOCUMENT_VERSION,
+      source: 'length("Move Capital") + abs(-3)',
+      references: [],
+    };
+    const compileResult = compileFormulaEditorDocument({
+      document: helperDocument,
+      resolveReference: () => ({ status: 'error', reason: 'NOT_FOUND' }),
+    });
+
+    if (compileResult.status !== 'success') {
+      throw new Error('Expected helper Formula compilation to succeed.');
+    }
+
+    expect(
+      evaluateCompiledFormula({
+        compiledFormula: compileResult.compiledFormula,
+        resolveValue: () => undefined,
+      }),
+    ).toMatchObject({
+      status: 'success',
+      value: { type: 'NUMBER', value: 15 },
+    });
+  });
+
   it('evaluates previousValue through the explicit history resolver', () => {
     const historicalDocument: FormulaEditorDocument = {
       version: FORMULA_EDITOR_DOCUMENT_VERSION,

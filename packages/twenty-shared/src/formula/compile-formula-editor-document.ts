@@ -252,6 +252,48 @@ const inferCallType = ({
     };
   }
 
+  if (
+    node.functionName === 'lower' ||
+    node.functionName === 'upper' ||
+    node.functionName === 'trim' ||
+    node.functionName === 'length'
+  ) {
+    if (argumentTypes.length !== 1) {
+      throw error(
+        'ARGUMENT_COUNT_MISMATCH',
+        `${node.functionName} expects exactly one argument.`,
+        node,
+      );
+    }
+    const sourceType = requireType({
+      actual: argumentTypes[0],
+      expected: 'TEXT',
+      node: node.arguments[0],
+    });
+
+    return {
+      type: node.functionName === 'length' ? 'NUMBER' : 'TEXT',
+      nullable: sourceType.nullable,
+    };
+  }
+
+  if (node.functionName === 'abs') {
+    if (argumentTypes.length !== 1) {
+      throw error(
+        'ARGUMENT_COUNT_MISMATCH',
+        'abs expects exactly one argument.',
+        node,
+      );
+    }
+    const sourceType = requireType({
+      actual: argumentTypes[0],
+      expected: 'NUMBER',
+      node: node.arguments[0],
+    });
+
+    return { type: 'NUMBER', nullable: sourceType.nullable };
+  }
+
   throw error(
     'FUNCTION_NOT_SUPPORTED',
     `Function ${node.functionName} is not supported.`,

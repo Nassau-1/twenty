@@ -37,6 +37,11 @@ const FORMULA_FUNCTIONS = [
   { name: 'count', signature: 'count(relation)' },
   { name: 'if', signature: 'if(condition, whenTrue, whenFalse)' },
   { name: 'coalesce', signature: 'coalesce(value, fallback)' },
+  { name: 'lower', signature: 'lower(text)' },
+  { name: 'upper', signature: 'upper(text)' },
+  { name: 'trim', signature: 'trim(text)' },
+  { name: 'length', signature: 'length(text)' },
+  { name: 'abs', signature: 'abs(number)' },
   { name: 'previousValue', signature: 'previousValue(field)' },
   { name: 'valueAt', signature: 'valueAt(field, timestamp)' },
 ] as const;
@@ -219,6 +224,16 @@ export const SettingsDataModelFormulaForm = ({
     useState<FormulaPreviewApiResult | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [isPreviewing, setIsPreviewing] = useState(false);
+  const outputType =
+    compileResult.status === 'success'
+      ? compileResult.compiledFormula.output.type
+      : null;
+  const outputTypeLabel =
+    outputType === 'TEXT'
+      ? t`Text`
+      : outputType === 'BOOLEAN'
+        ? t`Boolean`
+        : t`Number`;
 
   useEffect(() => {
     return () => completionProviderRef.current?.dispose();
@@ -290,7 +305,7 @@ export const SettingsDataModelFormulaForm = ({
           root: [
             [/\{[^}]+\}/u, 'variable'],
             [
-              /\b(?:count|if|coalesce|previousValue|valueAt)(?=\s*\()/u,
+              /\b(?:count|if|coalesce|lower|upper|trim|length|abs|previousValue|valueAt)(?=\s*\()/u,
               'keyword',
             ],
             [/\b(?:true|false|null|and|or|not)\b/iu, 'keyword'],
@@ -415,7 +430,10 @@ export const SettingsDataModelFormulaForm = ({
 
   return (
     <Section>
-      <H2Title title={t`Formula`} description={t`Number output`} />
+      <H2Title
+        title={t`Formula`}
+        description={t`Typed ${outputTypeLabel} output`}
+      />
       <StyledEditorLayout>
         <StyledEditorColumn>
           <StyledToolbar>
@@ -443,7 +461,7 @@ export const SettingsDataModelFormulaForm = ({
               <StyledOutput isValid={compileResult.status === 'success'}>
                 {compileResult.status === 'success' && <IconCheck size={14} />}
                 {compileResult.status === 'success'
-                  ? t`Output: Number`
+                  ? t`Output: ${outputTypeLabel}`
                   : t`Formula has errors`}
               </StyledOutput>
               <LightIconButton
@@ -505,7 +523,11 @@ export const SettingsDataModelFormulaForm = ({
                   <StyledFunctionSignature>
                     {field.type === FieldMetadataType.RELATION
                       ? t`Relation`
-                      : t`Number`}
+                      : field.type === FieldMetadataType.TEXT
+                        ? t`Text`
+                        : field.type === FieldMetadataType.BOOLEAN
+                          ? t`Boolean`
+                          : t`Number`}
                   </StyledFunctionSignature>
                 </StyledHelperButton>
               ))}
@@ -557,7 +579,13 @@ export const SettingsDataModelFormulaForm = ({
             {previewError ??
               (previewResult?.value === null
                 ? t`Empty`
-                : previewResult?.value.toLocaleString())}
+                : typeof previewResult?.value === 'boolean'
+                  ? previewResult.value
+                    ? t`True`
+                    : t`False`
+                  : typeof previewResult?.value === 'number'
+                    ? previewResult.value.toLocaleString()
+                    : previewResult?.value)}
           </strong>
         </StyledPreviewResult>
       )}

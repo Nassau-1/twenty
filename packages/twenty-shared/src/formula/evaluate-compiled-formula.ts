@@ -359,6 +359,55 @@ export const evaluateCompiledFormula = ({
           }
           return { type: 'NULL', value: null };
         }
+        if (
+          node.functionName === 'lower' ||
+          node.functionName === 'upper' ||
+          node.functionName === 'trim' ||
+          node.functionName === 'length'
+        ) {
+          const source = evaluate(node.arguments[0], depth + 1);
+
+          if (source.type === 'NULL') {
+            return source;
+          }
+          if (source.type !== 'TEXT') {
+            throw evaluationError(
+              'EVALUATION_ERROR',
+              `${node.functionName} requires TEXT.`,
+              node,
+            );
+          }
+
+          const value =
+            node.functionName === 'lower'
+              ? { type: 'TEXT' as const, value: source.value.toLowerCase() }
+              : node.functionName === 'upper'
+                ? { type: 'TEXT' as const, value: source.value.toUpperCase() }
+                : node.functionName === 'trim'
+                  ? { type: 'TEXT' as const, value: source.value.trim() }
+                  : { type: 'NUMBER' as const, value: source.value.length };
+
+          return assertWithinLimits(value, node);
+        }
+        if (node.functionName === 'abs') {
+          const source = evaluate(node.arguments[0], depth + 1);
+
+          if (source.type === 'NULL') {
+            return source;
+          }
+          if (source.type !== 'NUMBER') {
+            throw evaluationError(
+              'EVALUATION_ERROR',
+              'abs requires NUMBER.',
+              node,
+            );
+          }
+
+          return assertWithinLimits(
+            { type: 'NUMBER', value: Math.abs(source.value) },
+            node,
+          );
+        }
         throw evaluationError(
           'EVALUATION_ERROR',
           `Function ${node.functionName} is not supported.`,

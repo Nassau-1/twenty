@@ -1,6 +1,6 @@
 export const FORMULA_EDITOR_DOCUMENT_VERSION = 1 as const;
 export const FORMULA_AST_VERSION = 1 as const;
-export const FORMULA_EVALUATOR_VERSION = '1.2.0' as const;
+export const FORMULA_EVALUATOR_VERSION = '1.3.0' as const;
 
 export type FormulaSourceSpan = {
   start: number;

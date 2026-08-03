@@ -1,6 +1,9 @@
 import { getTokenPair } from '@/apollo/utils/getTokenPair';
 import { REACT_APP_SERVER_BASE_URL } from '~/config';
-import { type FormulaEditorDocument } from 'twenty-shared/formula';
+import {
+  type FormulaEditorDocument,
+  type FormulaOutputType,
+} from 'twenty-shared/formula';
 
 export type FormulaMetadataApiInput = {
   objectMetadataId: string;
@@ -18,10 +21,10 @@ export type FormulaPreviewApiInput = {
 export type FormulaPreviewApiResult = {
   recordId: string;
   output: {
-    type: 'NUMBER';
+    type: FormulaOutputType;
     nullable: boolean;
   };
-  value: number | null;
+  value: boolean | number | string | null;
   evaluatorVersion: string;
   instructionCount: number;
 };

@@ -14,6 +14,7 @@ import {
   planFormulaMetadata,
 } from '@/settings/data-model/fields/forms/formula/services/formulaMetadataApi';
 import { compileFormulaDisplaySource } from '@/settings/data-model/fields/forms/formula/utils/compileFormulaDisplaySource';
+import { getFieldMetadataTypeFromFormulaOutputType } from '@/settings/data-model/fields/forms/formula/utils/formulaFieldTypeMappings';
 import { settingsFieldFormSchema } from '@/settings/data-model/fields/forms/validation-schemas/settingsFieldFormSchema';
 import { useSnackBar } from '@/ui/feedback/snack-bar-manager/hooks/useSnackBar';
 import { SettingsPageLayout } from '@/settings/components/layout/SettingsPageLayout';
@@ -109,10 +110,11 @@ export const SettingsObjectNewFieldConfigure = () => {
       activeObjectMetadataItem?.fields.filter(
         (field) =>
           (field.type === FieldMetadataType.NUMBER ||
+            field.type === FieldMetadataType.TEXT ||
+            field.type === FieldMetadataType.BOOLEAN ||
             field.type === FieldMetadataType.RELATION) &&
           field.isActive !== false &&
-          (field.type !== FieldMetadataType.NUMBER ||
-            field.isUIEditable !== false),
+          field.isUIEditable !== false,
       ) ?? [],
     [activeObjectMetadataItem?.fields],
   );
@@ -132,23 +134,42 @@ export const SettingsObjectNewFieldConfigure = () => {
     const initialField = relationField ?? formulaSourceFields[0];
 
     setFormulaSource(
-      relationField === undefined
-        ? `{${initialField.label}} * 2`
-        : `count({${initialField.label}})`,
+      relationField !== undefined
+        ? `count({${relationField.label}})`
+        : initialField.type === FieldMetadataType.NUMBER
+          ? `{${initialField.label}} * 2`
+          : initialField.type === FieldMetadataType.TEXT
+            ? `trim({${initialField.label}})`
+            : `{${initialField.label}}`,
     );
     setHasInitializedFormulaSource(true);
   }, [formulaSourceFields, hasInitializedFormulaSource, isFormulaField]);
 
   const isDDLLocked = useAtomStateValue(isDDLLockedState);
 
-  if (!isDefined(activeObjectMetadataItem)) return null;
-
-  const { isValid, isSubmitting } = formConfig.formState;
-
   const formulaCompileResult = compileFormulaDisplaySource({
     displaySource: formulaSource,
     sourceFields: formulaSourceFields,
   });
+  const formulaOutputFieldType =
+    formulaCompileResult.status === 'success'
+      ? getFieldMetadataTypeFromFormulaOutputType(
+          formulaCompileResult.compiledFormula.output.type,
+        )
+      : FieldMetadataType.NUMBER;
+
+  useEffect(() => {
+    if (!isFormulaField) {
+      return;
+    }
+
+    formConfig.setValue('type', formulaOutputFieldType);
+  }, [formConfig, formulaOutputFieldType, isFormulaField]);
+
+  if (!isDefined(activeObjectMetadataItem)) return null;
+
+  const { isValid, isSubmitting } = formConfig.formState;
+
   const canSave =
     isValid &&
     !isSubmitting &&
@@ -184,7 +205,7 @@ export const SettingsObjectNewFieldConfigure = () => {
 
       const outputFieldCreation = await createMetadataField({
         ...formValues,
-        type: FieldMetadataType.NUMBER,
+        type: formulaOutputFieldType,
         objectMetadataId: activeObjectMetadataItem.id,
         isUIEditable: false,
         isNullable:
@@ -376,11 +397,13 @@ export const SettingsObjectNewFieldConfigure = () => {
             <H2Title
               title={isFormulaField ? t`Output formatting` : t`Customization`}
               description={
-                isFormulaField ? t`Number format` : t`Customize field settings`
+                isFormulaField
+                  ? t`Formatting for the calculated value`
+                  : t`Customize field settings`
               }
             />
             <SettingsDataModelFieldSettingsFormCard
-              fieldType={fieldType}
+              fieldType={isFormulaField ? formulaOutputFieldType : fieldType}
               existingFieldMetadataId=""
               objectNameSingular={activeObjectMetadataItem.nameSingular}
             />
