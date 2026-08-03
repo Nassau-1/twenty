@@ -1,5 +1,6 @@
 import {
   getFieldMetadataTypeFromFormulaOutputType,
+  getFormulaOutputFieldFormDefaults,
   getFormulaTypeFromFieldMetadataType,
 } from '@/settings/data-model/fields/forms/formula/utils/formulaFieldTypeMappings';
 import { FieldMetadataType } from 'twenty-shared/types';
@@ -29,4 +30,34 @@ describe('formulaFieldTypeMappings', () => {
       fieldType,
     );
   });
+
+  it.each([
+    [
+      FieldMetadataType.NUMBER,
+      {
+        type: FieldMetadataType.NUMBER,
+        settings: { decimals: 0, type: 'number' },
+        isUnique: false,
+      },
+    ],
+    [
+      FieldMetadataType.TEXT,
+      {
+        type: FieldMetadataType.TEXT,
+        settings: { displayedMaxRows: 0 },
+        isUnique: false,
+      },
+    ],
+    [
+      FieldMetadataType.BOOLEAN,
+      { type: FieldMetadataType.BOOLEAN, defaultValue: false },
+    ],
+  ] as const)(
+    'resets %s output settings when Formula changes type',
+    (fieldType, expectedDefaults) => {
+      expect(getFormulaOutputFieldFormDefaults(fieldType)).toEqual(
+        expectedDefaults,
+      );
+    },
+  );
 });
