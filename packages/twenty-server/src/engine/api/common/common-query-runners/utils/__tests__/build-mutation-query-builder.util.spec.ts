@@ -5,11 +5,8 @@ import { buildMutationQueryBuilder } from 'src/engine/api/common/common-query-ru
 import { GraphqlQueryFilterConditionParser } from 'src/engine/api/graphql/graphql-query-runner/graphql-query-parsers/graphql-query-filter/graphql-query-filter-condition.parser';
 import { type GraphqlQueryParser } from 'src/engine/api/graphql/graphql-query-runner/graphql-query-parsers/graphql-query.parser';
 import { type ObjectRecordFilter } from 'src/engine/api/graphql/workspace-query-builder/interfaces/object-record.interface';
-import { type FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/flat-entity-maps.type';
 import { getFlatFieldMetadataMock } from 'src/engine/metadata-modules/flat-field-metadata/__mocks__/get-flat-field-metadata.mock';
-import { type FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { getFlatObjectMetadataMock } from 'src/engine/metadata-modules/flat-object-metadata/__mocks__/get-flat-object-metadata.mock';
-import { type FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { PermissionsException } from 'src/engine/metadata-modules/permissions/permissions.exception';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-select-query-builder';
@@ -21,7 +18,7 @@ class MetadataOnlyDataSource extends DataSource {
   }
 }
 
-const callEntity = new EntitySchema({
+const callEntity = new EntitySchema<ObjectLiteral>({
   name: 'call',
   tableName: '_call',
   columns: {
@@ -102,7 +99,7 @@ describe('buildMutationQueryBuilder physical target references', () => {
         fields.map(({ id }) => [id, id]),
       ),
       universalIdentifiersByApplicationId: {},
-    } as FlatEntityMaps<FlatFieldMetadata>,
+    } as ConstructorParameters<typeof GraphqlQueryFilterConditionParser>[1],
     {
       byUniversalIdentifier: {
         'call-object': callMetadata,
@@ -113,7 +110,7 @@ describe('buildMutationQueryBuilder physical target references', () => {
         'company-object': 'company-object',
       },
       universalIdentifiersByApplicationId: {},
-    } as FlatEntityMaps<FlatObjectMetadata>,
+    } as ConstructorParameters<typeof GraphqlQueryFilterConditionParser>[2],
   );
 
   const buildGraphqlFilter = (
@@ -279,6 +276,25 @@ describe('buildMutationQueryBuilder physical target references', () => {
     }
   });
 
+  it('isolates later parameterized RLS predicates from the event readback', () => {
+    const builder = buildGraphqlFilter({ name: { eq: 'visible' } });
+    const eventReadback = builder.clone();
+
+    // computeEventSelectQueryBuilder shares conditions but copies parameters.
+    eventReadback.expressionMap.wheres = builder.expressionMap.wheres;
+    builder.expressionMap.wheres = applyTableAliasOnWhereCondition({
+      condition: builder.expressionMap.wheres,
+      aliasName: builder.alias,
+      tableName: repository.metadata.tableName,
+    }) as typeof builder.expressionMap.wheres;
+    builder.andWhere('"_call"."id" = :rls_owner', { rls_owner: 'allowed-id' });
+
+    expect(builder.getQuery()).toContain(':rls_owner');
+    expect(builder.getParameters().rls_owner).toBe('allowed-id');
+    expect(eventReadback.getParameters()).not.toHaveProperty('rls_owner');
+    expect(eventReadback.getQuery()).not.toContain(':rls_owner');
+  });
+
   it.each([
     { canReadObjectRecords: false, restrictedFields: {} },
     {
@@ -291,7 +307,7 @@ describe('buildMutationQueryBuilder physical target references', () => {
       expect(() =>
         buildGraphqlFilter({ name: { eq: 'private' } }, {
           'call-object': permission,
-        } as WorkspaceSelectQueryBuilder<ObjectLiteral>['objectRecordsPermissions']),
+        } as unknown as WorkspaceSelectQueryBuilder<ObjectLiteral>['objectRecordsPermissions']),
       ).toThrow(PermissionsException);
     },
   );
