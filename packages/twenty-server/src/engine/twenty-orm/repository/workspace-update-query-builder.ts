@@ -40,6 +40,12 @@ import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
 import { validateRLSPredicatesForRecords } from 'src/engine/twenty-orm/utils/validate-rls-predicates-for-records.util';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
+import {
+  callReservationFence,
+  getCallReservationTransition,
+  isReservedCallObject,
+  type CallReservationTransition,
+} from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 export class WorkspaceUpdateQueryBuilder<
   T extends ObjectLiteral,
@@ -59,6 +65,14 @@ export class WorkspaceUpdateQueryBuilder<
 
   private _relationNestedQueries?: RelationNestedQueries;
   private _filesFieldSync?: FilesFieldSync;
+  private callReservationTransition?: CallReservationTransition;
+
+  public withCallReservationTransition(
+    transition: CallReservationTransition | undefined,
+  ): this {
+    this.callReservationTransition = transition;
+    return this;
+  }
 
   private get relationNestedQueries(): RelationNestedQueries {
     return (this._relationNestedQueries ??= new RelationNestedQueries(
@@ -98,6 +112,9 @@ export class WorkspaceUpdateQueryBuilder<
       this.featureFlagMap,
     ) as this;
 
+    workspaceUpdateQueryBuilder.callReservationTransition =
+      this.callReservationTransition;
+
     return workspaceUpdateQueryBuilder;
   }
 
@@ -122,6 +139,8 @@ export class WorkspaceUpdateQueryBuilder<
         this.internalContext,
       );
 
+      this.applyCallReservationFence(this.alias);
+
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
         authContext: this.authContext,
@@ -136,6 +155,13 @@ export class WorkspaceUpdateQueryBuilder<
       const before = await eventSelectQueryBuilder.getMany({
         noFormatting: true,
       });
+
+      if (
+        before.length === 0 &&
+        isReservedCallObject(objectMetadata, this.internalContext)
+      ) {
+        return { raw: [], generatedMaps: [], affected: 0 };
+      }
 
       if (before.length > QUERY_MAX_RECORDS) {
         throw new TwentyORMException(
@@ -213,6 +239,8 @@ export class WorkspaceUpdateQueryBuilder<
       }
 
       this.applyRowLevelPermissionPredicates();
+
+      this.applyCallReservationFence();
 
       const valuesSet = this.expressionMap.valuesSet ?? {};
       const updatedRecords: T[] = before.map(
@@ -339,9 +367,33 @@ export class WorkspaceUpdateQueryBuilder<
         this.manyInputs.map((input) => input.criteria),
       );
 
+      const initialFence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+        undefined,
+        this.alias,
+      );
+
+      if (initialFence)
+        eventSelectQueryBuilder.andWhere(
+          initialFence.condition,
+          initialFence.parameters,
+        );
+
       const beforeRecords = await eventSelectQueryBuilder.getMany({
         noFormatting: true,
       });
+
+      if (initialFence) {
+        const allowedIds = new Set(beforeRecords.map((record) => record.id));
+
+        this.manyInputs = this.manyInputs.filter((input) =>
+          allowedIds.has(input.criteria),
+        );
+        if (this.manyInputs.length === 0)
+          return { raw: [], generatedMaps: [], affected: 0 };
+      }
 
       const formattedBefore = formatResult<T[]>(
         beforeRecords,
@@ -426,6 +478,8 @@ export class WorkspaceUpdateQueryBuilder<
         this.where({ id: input.criteria });
 
         this.applyRowLevelPermissionPredicates();
+
+        this.applyCallReservationFence();
 
         const beforeRecord = beforeRecordById.get(input.criteria);
         const updatedRecords = beforeRecord
@@ -638,6 +692,34 @@ export class WorkspaceUpdateQueryBuilder<
       authContext: this.authContext,
       featureFlagMap: this.featureFlagMap,
     });
+  }
+
+  private applyCallReservationFence(alias?: string): void {
+    const object = getObjectMetadataFromEntityTarget(
+      this.getMainAliasTarget(),
+      this.internalContext,
+    );
+    const owned = this.callReservationTransition;
+    const values = this.expressionMap.valuesSet;
+    const transition =
+      owned && !this.manyInputs && values && !Array.isArray(values)
+        ? getCallReservationTransition(
+            {
+              id: { eq: owned.callId },
+              vexaMeetingId: { eq: owned.reservation },
+            },
+            values,
+          )
+        : undefined;
+    const fence = callReservationFence(
+      object,
+      this.internalContext,
+      (name) => this.escape(name),
+      transition?.meetingId === owned?.meetingId ? transition : undefined,
+      alias,
+    );
+
+    if (fence) this.andWhere(fence.condition, fence.parameters);
   }
 
   private validateRLSPredicatesForUpdate({

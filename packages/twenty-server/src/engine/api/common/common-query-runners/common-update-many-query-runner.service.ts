@@ -27,6 +27,7 @@ import { FlatEntityMaps } from 'src/engine/metadata-modules/flat-entity/types/fl
 import { FlatFieldMetadata } from 'src/engine/metadata-modules/flat-field-metadata/types/flat-field-metadata.type';
 import { FlatObjectMetadata } from 'src/engine/metadata-modules/flat-object-metadata/types/flat-object-metadata.type';
 import { assertMutationNotOnRemoteObject } from 'src/engine/metadata-modules/object-metadata/utils/assert-mutation-not-on-remote-object.util';
+import { getCallReservationTransition } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 @Injectable()
 export class CommonUpdateManyQueryRunnerService extends CommonBaseQueryRunnerService<
@@ -64,9 +65,13 @@ export class CommonUpdateManyQueryRunnerService extends CommonBaseQueryRunnerSer
       flatFieldMetadataMaps,
     });
 
-    const updatedObjectRecords = await queryBuilder
-      .update()
-      .set(args.data)
+    const updateBuilder = queryBuilder.update().set(args.data);
+
+    updateBuilder.withCallReservationTransition(
+      getCallReservationTransition(args.filter, args.data),
+    );
+
+    const updatedObjectRecords = await updateBuilder
       .returning(columnsToReturn)
       .execute();
 

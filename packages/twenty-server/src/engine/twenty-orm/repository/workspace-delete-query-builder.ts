@@ -31,6 +31,7 @@ import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
+import { callReservationFence } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 export class WorkspaceDeleteQueryBuilder<
   T extends ObjectLiteral,
@@ -90,6 +91,17 @@ export class WorkspaceDeleteQueryBuilder<
         this.internalContext,
       );
 
+      const initialFence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+        undefined,
+        this.alias,
+      );
+
+      if (initialFence)
+        this.andWhere(initialFence.condition, initialFence.parameters);
+
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
         authContext: this.authContext,
@@ -110,6 +122,14 @@ export class WorkspaceDeleteQueryBuilder<
         tableName,
         aliasName: this.alias,
       }) as WhereClause[];
+
+      const fence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+      );
+
+      if (fence) this.andWhere(fence.condition, fence.parameters);
 
       const result = await super.execute();
 

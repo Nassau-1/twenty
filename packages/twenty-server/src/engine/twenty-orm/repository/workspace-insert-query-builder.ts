@@ -32,6 +32,7 @@ import { formatData } from 'src/engine/twenty-orm/utils/format-data.util';
 import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
+import { callReservationFence } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 import { validateRLSPredicatesForRecords } from 'src/engine/twenty-orm/utils/validate-rls-predicates-for-records.util';
 
 export class WorkspaceInsertQueryBuilder<
@@ -220,6 +221,38 @@ export class WorkspaceInsertQueryBuilder<
       }
 
       this.validateRLSPredicatesForInsert();
+
+      const fence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+      );
+
+      if (fence && this.expressionMap.onConflict) {
+        throw new TwentyORMException(
+          'Raw Call conflict clauses are not supported',
+          TwentyORMExceptionCode.METHOD_NOT_ALLOWED,
+        );
+      }
+      if (fence && this.expressionMap.onUpdate) {
+        const existing = this.expressionMap.onUpdate.overwriteCondition ?? [];
+
+        this.expressionMap.onUpdate.overwriteCondition = [
+          ...(existing.length
+            ? [
+                {
+                  type: 'simple' as const,
+                  condition: {
+                    operator: 'brackets' as const,
+                    condition: existing,
+                  },
+                },
+              ]
+            : []),
+          { type: 'and', condition: fence.condition },
+        ];
+        this.setParameters(fence.parameters);
+      }
 
       const result = await super.execute();
 
