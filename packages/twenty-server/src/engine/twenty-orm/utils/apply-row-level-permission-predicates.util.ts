@@ -59,6 +59,7 @@ export const applyRowLevelPermissionPredicates = <T extends ObjectLiteral>({
   const isUpdateOrDeleteQuery =
     queryBuilder.expressionMap.queryType === 'update' ||
     queryBuilder.expressionMap.queryType === 'soft-delete' ||
+    queryBuilder.expressionMap.queryType === 'restore' ||
     queryBuilder.expressionMap.queryType === 'delete';
 
   applyObjectRecordFilterToQueryBuilder({

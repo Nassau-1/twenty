@@ -10,7 +10,20 @@ import { getFlatObjectMetadataMock } from 'src/engine/metadata-modules/flat-obje
 import { PermissionsException } from 'src/engine/metadata-modules/permissions/permissions.exception';
 import { type WorkspaceRepository } from 'src/engine/twenty-orm/repository/workspace.repository';
 import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/repository/workspace-select-query-builder';
+import { applyRowLevelPermissionPredicates } from 'src/engine/twenty-orm/utils/apply-row-level-permission-predicates.util';
 import { applyTableAliasOnWhereCondition } from 'src/engine/twenty-orm/utils/apply-table-alias-on-where-condition';
+
+jest.mock(
+  'src/engine/twenty-orm/utils/build-row-level-permission-record-filter.util',
+  () => ({
+    buildRowLevelPermissionRecordFilter: jest.fn(() => ({
+      and: [
+        { name: { eq: 'allowed-name' } },
+        { not: { vexaMeetingId: { eq: 'excluded-meeting' } } },
+      ],
+    })),
+  }),
+);
 
 class MetadataOnlyDataSource extends DataSource {
   async prepareMetadata() {
@@ -89,17 +102,18 @@ describe('buildMutationQueryBuilder physical target references', () => {
     nameSingular: 'company',
     fieldIds: ['company-name'],
   });
+  const flatFieldMetadataMaps = {
+    byUniversalIdentifier: Object.fromEntries(
+      fields.map((field) => [field.id, field]),
+    ),
+    universalIdentifierById: Object.fromEntries(
+      fields.map(({ id }) => [id, id]),
+    ),
+    universalIdentifiersByApplicationId: {},
+  } as ConstructorParameters<typeof GraphqlQueryFilterConditionParser>[1];
   const parser = new GraphqlQueryFilterConditionParser(
     callMetadata,
-    {
-      byUniversalIdentifier: Object.fromEntries(
-        fields.map((field) => [field.id, field]),
-      ),
-      universalIdentifierById: Object.fromEntries(
-        fields.map(({ id }) => [id, id]),
-      ),
-      universalIdentifiersByApplicationId: {},
-    } as ConstructorParameters<typeof GraphqlQueryFilterConditionParser>[1],
+    flatFieldMetadataMaps,
     {
       byUniversalIdentifier: {
         'call-object': callMetadata,
@@ -294,6 +308,47 @@ describe('buildMutationQueryBuilder physical target references', () => {
     expect(eventReadback.getParameters()).not.toHaveProperty('rls_owner');
     expect(eventReadback.getQuery()).not.toContain(':rls_owner');
   });
+
+  it.each(['update', 'delete', 'softDelete', 'restore'] as const)(
+    'emits direct RLS column references for %s on the physical target',
+    (kind) => {
+      const builder = buildGraphqlFilter({ id: { eq: 'fixture-id' } });
+      const mutation =
+        kind === 'update'
+          ? builder.update().set({ name: 'allowed-name' })
+          : builder[kind]();
+      const queryBuilder = Object.assign(mutation, {
+        objectRecordsPermissions: {},
+      }) as unknown as WorkspaceSelectQueryBuilder<ObjectLiteral>;
+
+      applyRowLevelPermissionPredicates({
+        queryBuilder,
+        objectMetadata: callMetadata,
+        internalContext: {
+          flatFieldMetadataMaps,
+          userWorkspaceRoleMap: {},
+          apiKeyRoleMap: { 'fixture-key': 'fixture-role' },
+        } as unknown as Parameters<
+          typeof applyRowLevelPermissionPredicates
+        >[0]['internalContext'],
+        authContext: {
+          type: 'apiKey',
+          apiKey: { id: 'fixture-key' },
+        } as Parameters<
+          typeof applyRowLevelPermissionPredicates
+        >[0]['authContext'],
+        featureFlagMap: {},
+      });
+      const query = mutation.getQuery();
+
+      expect(query).toContain('"name" = :');
+      expect(query).toContain('"vexaMeetingId" = :');
+      expect(query).not.toContain('"call".');
+      expect(Object.values(mutation.getParameters())).toEqual(
+        expect.arrayContaining(['allowed-name', 'excluded-meeting']),
+      );
+    },
+  );
 
   it.each([
     { canReadObjectRecords: false, restrictedFields: {} },
