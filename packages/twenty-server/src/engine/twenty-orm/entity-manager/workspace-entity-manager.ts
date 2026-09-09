@@ -67,6 +67,7 @@ import { formatData } from 'src/engine/twenty-orm/utils/format-data.util';
 import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
+import { executeCallPersistence } from 'src/engine/twenty-orm/utils/execute-call-persistence.util';
 import { type WorkspaceEventEmitter } from 'src/engine/workspace-event-emitter/workspace-event-emitter';
 
 type PermissionOptions = {
@@ -1276,15 +1277,22 @@ export class WorkspaceEntityManager extends EntityManager {
         updatedColumns,
       });
 
-      const result = await new EntityPersistExecutor(
-        this.connection,
+      const result = await executeCallPersistence(
         queryRunnerForEntityPersistExecutor,
-        'save',
-        target,
-        formattedEntityOrEntities as ObjectLiteral[],
-        options as SaveOptions | (SaveOptions & { reload: false }),
+        entityTarget,
+        objectMetadataItem,
+        this.internalContext,
+        formattedEntityOrEntities,
+        () =>
+          new EntityPersistExecutor(
+            this.connection,
+            queryRunnerForEntityPersistExecutor,
+            'save',
+            target,
+            formattedEntityOrEntities as ObjectLiteral[],
+            options as SaveOptions | (SaveOptions & { reload: false }),
+          ).execute(),
       )
-        .execute()
         .then(() => formattedEntityOrEntities as Entity[])
         // oxlint-disable-next-line typescript/no-misused-promises
         .finally(() => queryRunnerForEntityPersistExecutor.release());
@@ -1507,15 +1515,22 @@ export class WorkspaceEntityManager extends EntityManager {
       this.internalContext.flatFieldMetadataMaps,
     );
 
-    const result = new EntityPersistExecutor(
-      this.connection,
+    const result = await executeCallPersistence(
       queryRunnerForEntityPersistExecutor,
-      'remove',
-      target as string | undefined,
-      formattedEntity as ObjectLiteral,
-      options as RemoveOptions,
+      entityTarget,
+      objectMetadataItem,
+      this.internalContext,
+      formattedEntity,
+      () =>
+        new EntityPersistExecutor(
+          this.connection,
+          queryRunnerForEntityPersistExecutor,
+          'remove',
+          target as string | undefined,
+          formattedEntity as ObjectLiteral,
+          options as RemoveOptions,
+        ).execute(),
     )
-      .execute()
       .then(() => formattedEntity as Entity | Entity[])
       // oxlint-disable-next-line typescript/no-misused-promises
       .finally(() => queryRunnerForEntityPersistExecutor.release());
@@ -1656,15 +1671,22 @@ export class WorkspaceEntityManager extends EntityManager {
       this.internalContext.flatFieldMetadataMaps,
     );
 
-    const result = new EntityPersistExecutor(
-      this.connection,
+    const result = await executeCallPersistence(
       queryRunnerForEntityPersistExecutor,
-      'soft-remove',
-      target,
-      formattedEntity as ObjectLiteral,
-      options as SaveOptions,
+      entityTarget,
+      objectMetadataItem,
+      this.internalContext,
+      formattedEntity,
+      () =>
+        new EntityPersistExecutor(
+          this.connection,
+          queryRunnerForEntityPersistExecutor,
+          'soft-remove',
+          target,
+          formattedEntity as ObjectLiteral,
+          options as SaveOptions,
+        ).execute(),
     )
-      .execute()
       .then(() => formattedEntity as Entity)
       // oxlint-disable-next-line typescript/no-misused-promises
       .finally(() => queryRunnerForEntityPersistExecutor.release());
@@ -1806,15 +1828,22 @@ export class WorkspaceEntityManager extends EntityManager {
       this.internalContext.flatFieldMetadataMaps,
     );
 
-    const result = new EntityPersistExecutor(
-      this.connection,
+    const result = await executeCallPersistence(
       queryRunnerForEntityPersistExecutor,
-      'recover',
-      target,
-      formattedEntity as ObjectLiteral,
-      options as SaveOptions,
+      entityTarget,
+      objectMetadataItem,
+      this.internalContext,
+      formattedEntity,
+      () =>
+        new EntityPersistExecutor(
+          this.connection,
+          queryRunnerForEntityPersistExecutor,
+          'recover',
+          target,
+          formattedEntity as ObjectLiteral,
+          options as SaveOptions,
+        ).execute(),
     )
-      .execute()
       .then(() => formattedEntity as Entity)
       // oxlint-disable-next-line typescript/no-misused-promises
       .finally(() => queryRunnerForEntityPersistExecutor.release());

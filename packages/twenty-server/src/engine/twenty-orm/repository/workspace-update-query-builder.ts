@@ -44,6 +44,11 @@ import {
   callReservationFence,
   getCallReservationTransition,
   isReservedCallObject,
+  appendCallReservationFence,
+  validateCallReservationValues,
+  affectedCallRows,
+  affectedCallFileIds,
+  projectCallReturnedRows,
   type CallReservationTransition,
 } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
@@ -257,15 +262,44 @@ export class WorkspaceUpdateQueryBuilder<
         updatedRecords,
       });
 
+      const guardedCall = isReservedCallObject(
+        objectMetadata,
+        this.internalContext,
+      );
+      const requestedReturning = this.expressionMap.returning;
+      if (guardedCall) this.returning('*');
       const result = await super.execute();
+      this.expressionMap.returning = requestedReturning;
+      const successfulBefore = guardedCall
+        ? affectedCallRows(formattedBefore, result.raw)
+        : formattedBefore;
+
+      if (guardedCall && !result.affected)
+        return { raw: [], generatedMaps: [], affected: 0 };
 
       if (isDefined(filesFieldFileIds)) {
-        await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
+        await this.filesFieldSync.updateFileEntityRecords(
+          guardedCall && filesFieldDiffByEntityIndex
+            ? affectedCallFileIds(
+                filesFieldFileIds,
+                filesFieldDiffByEntityIndex,
+                new Set(
+                  formattedBefore.flatMap((row, index) =>
+                    successfulBefore.some((success) => success.id === row.id)
+                      ? [index]
+                      : [],
+                  ),
+                ),
+              )
+            : filesFieldFileIds,
+        );
       }
 
-      const after = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const after = guardedCall
+        ? result.raw
+        : await eventSelectQueryBuilder.getMany({
+            noFormatting: true,
+          });
 
       const formattedAfter = formatResult<T[]>(
         after,
@@ -281,7 +315,7 @@ export class WorkspaceUpdateQueryBuilder<
           flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
           workspaceId: this.internalContext.workspaceId,
           recordsAfter: formattedAfter,
-          recordsBefore: formattedBefore,
+          recordsBefore: successfulBefore,
           authContext: this.authContext,
         }),
       );
@@ -293,20 +327,23 @@ export class WorkspaceUpdateQueryBuilder<
           flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
           workspaceId: this.internalContext.workspaceId,
           recordsAfter: formattedAfter,
-          recordsBefore: formattedBefore,
+          recordsBefore: successfulBefore,
           authContext: this.authContext,
         }),
       );
 
+      const returned = guardedCall
+        ? projectCallReturnedRows(result.raw, requestedReturning)
+        : result.raw;
       const formattedResult = formatResult<T[]>(
-        result.raw,
+        returned,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
       );
 
       return {
-        raw: result.raw,
+        raw: returned,
         generatedMaps: formattedResult,
         affected: result.affected,
       };
@@ -375,11 +412,7 @@ export class WorkspaceUpdateQueryBuilder<
         this.alias,
       );
 
-      if (initialFence)
-        eventSelectQueryBuilder.andWhere(
-          initialFence.condition,
-          initialFence.parameters,
-        );
+      appendCallReservationFence(eventSelectQueryBuilder, initialFence);
 
       const beforeRecords = await eventSelectQueryBuilder.getMany({
         noFormatting: true,
@@ -403,6 +436,8 @@ export class WorkspaceUpdateQueryBuilder<
       );
 
       const results: UpdateResult[] = [];
+      const requestedReturning = this.expressionMap.returning;
+      const successfulIndices = new Set<number>();
 
       const nestedRelationQueryBuilder = new WorkspaceSelectQueryBuilder(
         this as unknown as WorkspaceSelectQueryBuilder<T>,
@@ -473,7 +508,7 @@ export class WorkspaceUpdateQueryBuilder<
         }
       }
 
-      for (const input of this.manyInputs) {
+      for (const [inputIndex, input] of this.manyInputs.entries()) {
         this.expressionMap.valuesSet = input.partialEntity;
         this.where({ id: input.criteria });
 
@@ -495,18 +530,36 @@ export class WorkspaceUpdateQueryBuilder<
           updatedRecords,
         });
 
+        if (initialFence) this.returning('*');
         const result = await super.execute();
+        this.expressionMap.returning = requestedReturning;
 
-        results.push(result);
+        if (!initialFence || result.affected) {
+          results.push(result);
+          successfulIndices.add(inputIndex);
+        }
       }
+
+      if (initialFence && results.length === 0)
+        return { raw: [], generatedMaps: [], affected: 0 };
 
       if (isDefined(filesFieldFileIds)) {
-        await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
+        await this.filesFieldSync.updateFileEntityRecords(
+          initialFence && filesFieldDiffByEntityIndex
+            ? affectedCallFileIds(
+                filesFieldFileIds,
+                filesFieldDiffByEntityIndex,
+                successfulIndices,
+              )
+            : filesFieldFileIds,
+        );
       }
 
-      const afterRecords = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const afterRecords = initialFence
+        ? results.flatMap((result) => result.raw)
+        : await eventSelectQueryBuilder.getMany({
+            noFormatting: true,
+          });
 
       const formattedAfter = formatResult<T[]>(
         afterRecords,
@@ -515,6 +568,10 @@ export class WorkspaceUpdateQueryBuilder<
         this.internalContext.flatFieldMetadataMaps,
       );
 
+      const successfulBefore = initialFence
+        ? affectedCallRows(formattedBefore, afterRecords)
+        : formattedBefore;
+
       this.internalContext.eventEmitterService.emitDatabaseBatchEvent(
         formatTwentyOrmEventToDatabaseBatchEvent({
           action: DatabaseEventAction.UPDATED,
@@ -522,7 +579,7 @@ export class WorkspaceUpdateQueryBuilder<
           flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
           workspaceId: this.internalContext.workspaceId,
           recordsAfter: formattedAfter,
-          recordsBefore: formattedBefore,
+          recordsBefore: successfulBefore,
           authContext: this.authContext,
         }),
       );
@@ -534,22 +591,28 @@ export class WorkspaceUpdateQueryBuilder<
           flatFieldMetadataMaps: this.internalContext.flatFieldMetadataMaps,
           workspaceId: this.internalContext.workspaceId,
           recordsAfter: formattedAfter,
-          recordsBefore: formattedBefore,
+          recordsBefore: successfulBefore,
           authContext: this.authContext,
         }),
       );
 
+      const returned = initialFence
+        ? projectCallReturnedRows(afterRecords, requestedReturning)
+        : results.flatMap((result) => result.raw);
       const formattedResults = formatResult<T[]>(
-        results.flatMap((result) => result.raw),
+        returned,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
       );
 
       return {
-        raw: results.flatMap((result) => result.raw),
+        raw: returned,
         generatedMaps: formattedResults,
-        affected: results.length,
+        affected: results.reduce(
+          (sum, result) => sum + (result.affected ?? 0),
+          0,
+        ),
       };
     } catch (error) {
       const objectMetadata = getObjectMetadataFromEntityTarget(
@@ -701,6 +764,7 @@ export class WorkspaceUpdateQueryBuilder<
     );
     const owned = this.callReservationTransition;
     const values = this.expressionMap.valuesSet;
+    validateCallReservationValues(object, this.internalContext, values);
     const transition =
       owned && !this.manyInputs && values && !Array.isArray(values)
         ? getCallReservationTransition(
@@ -719,7 +783,7 @@ export class WorkspaceUpdateQueryBuilder<
       alias,
     );
 
-    if (fence) this.andWhere(fence.condition, fence.parameters);
+    appendCallReservationFence(this, fence);
   }
 
   private validateRLSPredicatesForUpdate({

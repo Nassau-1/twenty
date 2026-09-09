@@ -8,6 +8,12 @@ import {
   callReservationFence,
   getCallReservationTransition,
   isReservedCallObject,
+  appendCallReservationFence,
+  validateCallReservationValues,
+  affectedCallRows,
+  affectedCallFileIds,
+  insertedCallFileIds,
+  projectCallReturnedRows,
 } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -33,6 +39,81 @@ const context = {
 const escape = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 describe('Call reservation producer fence', () => {
+  it.each([
+    'zo-pending:',
+    'zo-pending:other',
+    'zo-pending:ABCDEFAB-0000-4000-8000-000000000002',
+    () => "'zo-pending:other'",
+  ])('rejects malformed marker writes before SQL', (vexaMeetingId) => {
+    expect(() =>
+      validateCallReservationValues(object, context, { vexaMeetingId }),
+    ).toThrow('Invalid Call reservation marker');
+  });
+
+  it('accepts valid new markers and ordinary bindings without changing unrelated objects', () => {
+    for (const vexaMeetingId of [undefined, null, '', '37', reservation]) {
+      expect(() =>
+        validateCallReservationValues(object, context, { vexaMeetingId }),
+      ).not.toThrow();
+    }
+    expect(() =>
+      validateCallReservationValues(
+        { ...object, nameSingular: 'company' },
+        context,
+        { vexaMeetingId: 'zo-pending:other' },
+      ),
+    ).not.toThrow();
+  });
+
+  it('restricts bookkeeping to actual RETURNING rows, including mixed bulk results', () => {
+    const before = [{ id: 'one' }, { id: 'two' }];
+    expect(affectedCallRows(before, [])).toEqual([]);
+    expect(affectedCallRows(before, [{ id: 'two' }])).toEqual([{ id: 'two' }]);
+    expect(
+      projectCallReturnedRows([{ id: 'two', private: 'not-selected' }], ['id']),
+    ).toEqual([{ id: 'two' }]);
+  });
+
+  it('does not synchronize files from rejected update or upsert inputs', () => {
+    const fileIds = {
+      toAdd: new Set(['new-one', 'new-two']),
+      toUpdate: new Set<string>(),
+      toRemove: new Set(['old-one', 'old-two']),
+    };
+    const diff = {
+      0: {
+        files: {
+          toAdd: [{ fileId: 'new-one' }],
+          toUpdate: [],
+          toRemove: [{ fileId: 'old-one' }],
+        },
+      },
+      1: {
+        files: {
+          toAdd: [{ fileId: 'new-two' }],
+          toUpdate: [],
+          toRemove: [{ fileId: 'old-two' }],
+        },
+      },
+    };
+    expect(affectedCallFileIds(fileIds, diff, new Set([1]))).toEqual({
+      toAdd: new Set(['new-two']),
+      toUpdate: new Set(),
+      toRemove: new Set(['old-two']),
+    });
+    expect(insertedCallFileIds(fileIds, diff, [])).toEqual({
+      toAdd: new Set(),
+      toUpdate: new Set(),
+      toRemove: new Set(),
+    });
+    expect(
+      insertedCallFileIds(fileIds, diff, [{ files: [{ fileId: 'new-two' }] }]),
+    ).toEqual({
+      toAdd: new Set(['new-two']),
+      toUpdate: new Set(),
+      toRemove: new Set(),
+    });
+  });
   it('only guards Calls with the actual text binding field', () => {
     expect(isReservedCallObject(object, context)).toBe(true);
     expect(
@@ -203,12 +284,14 @@ describe('reservation predicates in real TypeORM SQL', () => {
       )!;
       builder
         .where('"_call"."id" = :id', { id })
-        .andWhere(fence.condition, fence.parameters);
+        .orWhere('"_call"."name" = :other', { other: 'other' });
+      appendCallReservationFence(builder, fence);
       const [sql, parameters] = builder.getQueryAndParameters();
       expect(sql).toContain(
         '"_call"."vexaMeetingId" IS NULL OR "_call"."vexaMeetingId" NOT LIKE',
       );
       expect(parameters).toContain('zo-pending:%');
+      expect(sql).toMatch(/WHERE \(.* OR .*\) AND \(.*vexaMeetingId.*NOT LIKE/);
       expect(sql).not.toContain('"call".');
     },
   );

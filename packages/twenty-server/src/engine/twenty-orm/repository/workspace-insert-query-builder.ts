@@ -32,7 +32,11 @@ import { formatData } from 'src/engine/twenty-orm/utils/format-data.util';
 import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
-import { callReservationFence } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
+import {
+  callReservationFence,
+  validateCallReservationValues,
+  insertedCallFileIds,
+} from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 import { validateRLSPredicatesForRecords } from 'src/engine/twenty-orm/utils/validate-rls-predicates-for-records.util';
 
 export class WorkspaceInsertQueryBuilder<
@@ -174,6 +178,12 @@ export class WorkspaceInsertQueryBuilder<
         ? this.expressionMap.valuesSet
         : [this.expressionMap.valuesSet];
 
+      validateCallReservationValues(
+        objectMetadata,
+        this.internalContext,
+        this.expressionMap.valuesSet,
+      );
+
       const filesFieldDiffByEntityIndex =
         this.filesFieldSync.computeFilesFieldDiffBeforeInsert(
           entities as QueryDeepPartialEntityWithNestedRelationFields<T>[],
@@ -254,10 +264,21 @@ export class WorkspaceInsertQueryBuilder<
         this.setParameters(fence.parameters);
       }
 
+      const requestedReturning = this.expressionMap.returning;
+      if (fence) this.returning('*');
       const result = await super.execute();
+      this.expressionMap.returning = requestedReturning;
 
       if (isDefined(filesFieldFileIds)) {
-        await this.filesFieldSync.updateFileEntityRecords(filesFieldFileIds);
+        await this.filesFieldSync.updateFileEntityRecords(
+          fence && filesFieldDiffByEntityIndex
+            ? insertedCallFileIds(
+                filesFieldFileIds,
+                filesFieldDiffByEntityIndex,
+                result.raw,
+              )
+            : filesFieldFileIds,
+        );
       }
       const eventSelectQueryBuilder = (
         this.connection.manager as WorkspaceEntityManager
@@ -274,9 +295,11 @@ export class WorkspaceInsertQueryBuilder<
         result.identifiers.map((identifier) => identifier.id),
       );
 
-      const afterResult = await eventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const afterResult = fence
+        ? result.raw
+        : await eventSelectQueryBuilder.getMany({
+            noFormatting: true,
+          });
 
       const formattedResultForEvent = formatResult<T[]>(
         afterResult,
@@ -334,7 +357,9 @@ export class WorkspaceInsertQueryBuilder<
       return {
         raw: resultWithoutInsertionExtraColumns,
         generatedMaps: formattedResult,
-        identifiers: result.identifiers,
+        identifiers: fence
+          ? result.raw.map((row: ObjectLiteral) => ({ id: row.id }))
+          : result.identifiers,
       };
     } catch (error) {
       const objectMetadata = getObjectMetadataFromEntityTarget(

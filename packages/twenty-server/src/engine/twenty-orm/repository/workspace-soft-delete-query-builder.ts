@@ -29,7 +29,12 @@ import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
-import { callReservationFence } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
+import {
+  callReservationFence,
+  appendCallReservationFence,
+  affectedCallRows,
+  projectCallReturnedRows,
+} from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 export class WorkspaceSoftDeleteQueryBuilder<
   T extends ObjectLiteral,
@@ -98,8 +103,7 @@ export class WorkspaceSoftDeleteQueryBuilder<
         this.alias,
       );
 
-      if (initialFence)
-        this.andWhere(initialFence.condition, initialFence.parameters);
+      appendCallReservationFence(this, initialFence);
 
       const beforeEventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
@@ -128,13 +132,20 @@ export class WorkspaceSoftDeleteQueryBuilder<
         (name) => this.escape(name),
       );
 
-      if (fence) this.andWhere(fence.condition, fence.parameters);
+      appendCallReservationFence(this, fence);
 
+      const requestedReturning = this.expressionMap.returning;
+      if (fence) this.returning('*');
       const typeORMSoftRemoveResultWithOnlyIdColumn = await super.execute();
+      this.expressionMap.returning = requestedReturning;
+      if (fence && !typeORMSoftRemoveResultWithOnlyIdColumn.affected)
+        return { raw: [], generatedMaps: [], affected: 0 };
 
-      const afterWithAllFields = await beforeEventSelectQueryBuilder.getMany({
-        noFormatting: true,
-      });
+      const afterWithAllFields = fence
+        ? typeORMSoftRemoveResultWithOnlyIdColumn.raw
+        : await beforeEventSelectQueryBuilder.getMany({
+            noFormatting: true,
+          });
 
       const formattedAfter = formatResult<T[]>(
         afterWithAllFields,
@@ -144,7 +155,7 @@ export class WorkspaceSoftDeleteQueryBuilder<
       );
 
       const formattedBefore = formatResult<T[]>(
-        before,
+        fence ? affectedCallRows(before, afterWithAllFields) : before,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
@@ -166,7 +177,12 @@ export class WorkspaceSoftDeleteQueryBuilder<
       );
 
       return {
-        raw: typeORMSoftRemoveResultWithOnlyIdColumn.raw,
+        raw: fence
+          ? projectCallReturnedRows(
+              typeORMSoftRemoveResultWithOnlyIdColumn.raw,
+              requestedReturning,
+            )
+          : typeORMSoftRemoveResultWithOnlyIdColumn.raw,
         generatedMaps: formattedAfter,
         affected: typeORMSoftRemoveResultWithOnlyIdColumn.affected,
       };
