@@ -1,9 +1,14 @@
 import { Injectable } from '@nestjs/common';
 
+import { msg } from '@lingui/core/macro';
 import { type ObjectRecord } from 'twenty-shared/types';
 
 import { CommonBaseQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-base-query-runner.service';
 import { CommonCreateManyQueryRunnerService } from 'src/engine/api/common/common-query-runners/common-create-many-query-runner/common-create-many-query-runner.service';
+import {
+  CommonQueryRunnerException,
+  CommonQueryRunnerExceptionCode,
+} from 'src/engine/api/common/common-query-runners/errors/common-query-runner.exception';
 import { CommonBaseQueryRunnerContext } from 'src/engine/api/common/types/common-base-query-runner-context.type';
 import { CommonExtendedQueryRunnerContext } from 'src/engine/api/common/types/common-extended-query-runner-context.type';
 import {
@@ -44,6 +49,16 @@ export class CommonCreateOneQueryRunnerService extends CommonBaseQueryRunnerServ
       },
       queryRunnerContext,
     );
+
+    if (!result || result.length === 0) {
+      throw new CommonQueryRunnerException(
+        'Record not found',
+        CommonQueryRunnerExceptionCode.RECORD_NOT_FOUND,
+        {
+          userFriendlyMessage: msg`This record could not be created or updated.`,
+        },
+      );
+    }
 
     return result[0];
   }

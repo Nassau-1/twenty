@@ -31,6 +31,11 @@ import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
 import { computeObjectTargetTable } from 'src/engine/utils/compute-object-target-table.util';
+import {
+  callReservationFence,
+  appendCallReservationFence,
+  projectCallReturnedRows,
+} from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 
 export class WorkspaceDeleteQueryBuilder<
   T extends ObjectLiteral,
@@ -90,6 +95,16 @@ export class WorkspaceDeleteQueryBuilder<
         this.internalContext,
       );
 
+      const initialFence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+        undefined,
+        this.alias,
+      );
+
+      appendCallReservationFence(this, initialFence);
+
       const eventSelectQueryBuilder = computeEventSelectQueryBuilder<T>({
         queryBuilder: this,
         authContext: this.authContext,
@@ -111,17 +126,33 @@ export class WorkspaceDeleteQueryBuilder<
         aliasName: this.alias,
       }) as WhereClause[];
 
+      const fence = callReservationFence(
+        objectMetadata,
+        this.internalContext,
+        (name) => this.escape(name),
+      );
+
+      appendCallReservationFence(this, fence);
+
+      const requestedReturning = this.expressionMap.returning;
+      if (fence) this.returning('*');
       const result = await super.execute();
+      this.expressionMap.returning = requestedReturning;
+      if (fence && !result.affected)
+        return { raw: [], generatedMaps: [], affected: 0 };
+      const returned = fence
+        ? projectCallReturnedRows(result.raw, requestedReturning)
+        : result.raw;
 
       const formattedResult = formatResult<T[]>(
-        result.raw,
+        returned,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
       );
 
-      const formattedBefore = formatResult<T | null>(
-        before,
+      const formattedBefore = formatResult<T | T[] | null>(
+        fence ? result.raw : before,
         objectMetadata,
         this.internalContext.flatObjectMetadataMaps,
         this.internalContext.flatFieldMetadataMaps,
@@ -145,7 +176,7 @@ export class WorkspaceDeleteQueryBuilder<
       );
 
       return {
-        raw: result.raw,
+        raw: returned,
         generatedMaps: formattedResult,
         affected: result.affected,
       };
