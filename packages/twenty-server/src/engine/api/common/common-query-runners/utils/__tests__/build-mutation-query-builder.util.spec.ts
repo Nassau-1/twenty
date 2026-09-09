@@ -337,7 +337,9 @@ describe('buildMutationQueryBuilder physical target references', () => {
         } as Parameters<
           typeof applyRowLevelPermissionPredicates
         >[0]['authContext'],
-        featureFlagMap: {},
+        featureFlagMap: {} as Parameters<
+          typeof applyRowLevelPermissionPredicates
+        >[0]['featureFlagMap'],
       });
       const query = mutation.getQuery();
 
