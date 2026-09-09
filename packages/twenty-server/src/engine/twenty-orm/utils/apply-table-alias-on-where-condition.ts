@@ -15,6 +15,10 @@ export const applyTableAliasOnWhereCondition = ({
   tableName,
   aliasName,
 }: ApplyTableAliasOnWhereConditionParams): WhereClauseCondition => {
+  if (aliasName === tableName) {
+    return condition;
+  }
+
   if (isString(condition)) {
     const conditionParts = condition.split('.');
 

@@ -150,7 +150,7 @@ export class WorkspaceUpdateQueryBuilder<
       this.expressionMap.wheres = applyTableAliasOnWhereCondition({
         condition: this.expressionMap.wheres,
         tableName,
-        aliasName: objectMetadata.nameSingular,
+        aliasName: this.alias,
       }) as WhereClause[];
 
       const nestedRelationQueryBuilder = new WorkspaceSelectQueryBuilder(
