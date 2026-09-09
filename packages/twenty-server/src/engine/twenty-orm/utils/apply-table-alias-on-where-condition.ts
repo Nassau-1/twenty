@@ -15,6 +15,11 @@ export const applyTableAliasOnWhereCondition = ({
   tableName,
   aliasName,
 }: ApplyTableAliasOnWhereConditionParams): WhereClauseCondition => {
+  if (aliasName === tableName) {
+    // Event SELECTs share the old tree; later RLS additions belong only to the mutation.
+    return structuredClone(condition);
+  }
+
   if (isString(condition)) {
     const conditionParts = condition.split('.');
 

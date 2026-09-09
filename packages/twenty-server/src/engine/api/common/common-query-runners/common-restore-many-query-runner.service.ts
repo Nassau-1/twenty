@@ -52,7 +52,6 @@ export class CommonRestoreManyQueryRunnerService extends CommonBaseQueryRunnerSe
 
     const queryBuilder = buildMutationQueryBuilder({
       repository,
-      alias: flatObjectMetadata.nameSingular,
       filter: args.filter,
       commonQueryParser,
     });

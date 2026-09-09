@@ -107,7 +107,7 @@ export class WorkspaceSoftDeleteQueryBuilder<
       this.expressionMap.wheres = applyTableAliasOnWhereCondition({
         condition: this.expressionMap.wheres,
         tableName,
-        aliasName: objectMetadata.nameSingular,
+        aliasName: this.alias,
       }) as WhereClause[];
 
       const typeORMSoftRemoveResultWithOnlyIdColumn = await super.execute();

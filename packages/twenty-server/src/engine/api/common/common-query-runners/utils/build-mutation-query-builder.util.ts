@@ -8,7 +8,6 @@ import { type WorkspaceSelectQueryBuilder } from 'src/engine/twenty-orm/reposito
 
 type BuildMutationQueryBuilderArgs = {
   repository: WorkspaceRepository<ObjectLiteral>;
-  alias: string;
   filter: Partial<ObjectRecordFilter>;
   commonQueryParser: GraphqlQueryParser;
 };
@@ -20,10 +19,12 @@ type BuildMutationQueryBuilderArgs = {
 // so the joins live inside a self-contained subquery.
 export const buildMutationQueryBuilder = ({
   repository,
-  alias,
   filter,
   commonQueryParser,
 }: BuildMutationQueryBuilderArgs): WorkspaceSelectQueryBuilder<ObjectLiteral> => {
+  // Mutations do not emit the SELECT alias in SQL. Generate filter references using
+  // the physical table name from the start, without rewriting literals or subqueries.
+  const alias = repository.metadata.tableName;
   const filteredQueryBuilder = repository.createQueryBuilder(alias);
 
   commonQueryParser.applyFilterToBuilder(filteredQueryBuilder, alias, filter);

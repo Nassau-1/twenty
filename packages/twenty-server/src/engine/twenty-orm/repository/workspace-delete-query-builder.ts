@@ -108,7 +108,7 @@ export class WorkspaceDeleteQueryBuilder<
       this.expressionMap.wheres = applyTableAliasOnWhereCondition({
         condition: this.expressionMap.wheres,
         tableName,
-        aliasName: objectMetadata.nameSingular,
+        aliasName: this.alias,
       }) as WhereClause[];
 
       const result = await super.execute();
