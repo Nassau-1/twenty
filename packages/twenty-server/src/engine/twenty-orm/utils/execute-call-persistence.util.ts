@@ -25,6 +25,7 @@ export async function executeCallPersistence<T>(
   context: Pick<WorkspaceInternalContext, 'flatFieldMetadataMaps'>,
   entities: ObjectLiteral | ObjectLiteral[],
   execute: () => Promise<T>,
+  scope?: 'all-rows',
 ): Promise<T> {
   if (!isReservedCallObject(object, context)) return execute();
   validateCallReservationValues(object, context, entities);
@@ -40,12 +41,18 @@ export async function executeCallPersistence<T>(
   if (ownedTransaction) await runner.startTransaction();
   try {
     await runner.query(`LOCK TABLE ${table} IN SHARE ROW EXCLUSIVE MODE`);
-    const reserved = ids.length
-      ? await runner.query(
-          `SELECT 1 FROM ${table} WHERE "id" = ANY($1::uuid[]) AND "vexaMeetingId" LIKE $2 LIMIT 1`,
-          [ids, 'zo-pending:%'],
-        )
-      : [];
+    const reserved =
+      scope === 'all-rows'
+        ? await runner.query(
+            `SELECT 1 FROM ${table} WHERE "vexaMeetingId" LIKE $1 LIMIT 1`,
+            ['zo-pending:%'],
+          )
+        : ids.length
+          ? await runner.query(
+              `SELECT 1 FROM ${table} WHERE "id" = ANY($1::uuid[]) AND "vexaMeetingId" LIKE $2 LIMIT 1`,
+              [ids, 'zo-pending:%'],
+            )
+          : [];
     if (reserved.length) {
       throw new TwentyORMException(
         'Call is reserved for bot dispatch',

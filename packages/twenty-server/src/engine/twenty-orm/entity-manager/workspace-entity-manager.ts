@@ -68,6 +68,7 @@ import { formatResult } from 'src/engine/twenty-orm/utils/format-result.util';
 import { formatTwentyOrmEventToDatabaseBatchEvent } from 'src/engine/twenty-orm/utils/format-twenty-orm-event-to-database-batch-event.util';
 import { getObjectMetadataFromEntityTarget } from 'src/engine/twenty-orm/utils/get-object-metadata-from-entity-target.util';
 import { executeCallPersistence } from 'src/engine/twenty-orm/utils/execute-call-persistence.util';
+import { isReservedCallObject } from 'src/engine/twenty-orm/utils/call-reservation-fence.util';
 import { type WorkspaceEventEmitter } from 'src/engine/workspace-event-emitter/workspace-event-emitter';
 
 type PermissionOptions = {
@@ -980,7 +981,26 @@ export class WorkspaceEntityManager extends EntityManager {
       selectedColumns: [], // TODO
     });
 
-    return super.clear(entityClass);
+    const object = getObjectMetadataFromEntityTarget(
+      entityClass,
+      this.internalContext,
+    );
+    if (!isReservedCallObject(object, this.internalContext))
+      return super.clear(entityClass);
+
+    const runner = this.connection.createQueryRunnerForEntityPersistExecutor();
+    return executeCallPersistence(
+      runner,
+      entityClass,
+      object,
+      this.internalContext,
+      [],
+      () =>
+        runner.clearTable(this.connection.getMetadata(entityClass).tablePath),
+      'all-rows',
+    )
+      // oxlint-disable-next-line typescript/no-misused-promises
+      .finally(() => runner.release());
   }
 
   override async preload<Entity extends ObjectLiteral>(

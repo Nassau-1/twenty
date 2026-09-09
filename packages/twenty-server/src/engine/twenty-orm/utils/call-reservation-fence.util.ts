@@ -85,7 +85,7 @@ export function projectCallReturnedRows(
   returning: string | string[],
 ) {
   if (returning === '*') return rows;
-  const columns = new Set(Array.isArray(returning) ? returning : []);
+  const columns = new Set(Array.isArray(returning) ? returning : [returning]);
   return rows.map((row) =>
     Object.fromEntries(Object.entries(row).filter(([key]) => columns.has(key))),
   );

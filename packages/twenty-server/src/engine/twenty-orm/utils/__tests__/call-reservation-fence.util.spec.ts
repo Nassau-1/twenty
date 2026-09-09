@@ -72,6 +72,9 @@ describe('Call reservation producer fence', () => {
     expect(
       projectCallReturnedRows([{ id: 'two', private: 'not-selected' }], ['id']),
     ).toEqual([{ id: 'two' }]);
+    expect(
+      projectCallReturnedRows([{ id: 'two', private: 'not-selected' }], 'id'),
+    ).toEqual([{ id: 'two' }]);
   });
 
   it('does not synchronize files from rejected update or upsert inputs', () => {

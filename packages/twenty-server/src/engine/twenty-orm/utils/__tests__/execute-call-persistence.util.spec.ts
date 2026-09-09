@@ -48,6 +48,42 @@ function fixture(reserved = false, active = false) {
 }
 
 describe('Call entity persistence fence', () => {
+  it('rejects whole-table clears when any Call is reserved', async () => {
+    const runner = fixture(true);
+    const clear = jest.fn();
+    await expect(
+      executeCallPersistence(
+        runner as unknown as QueryRunner,
+        'call',
+        object,
+        context,
+        [],
+        clear,
+        'all-rows',
+      ),
+    ).rejects.toThrow('Call is reserved');
+    expect(clear).not.toHaveBeenCalled();
+    expect(runner.query.mock.calls[1][0]).not.toContain('ANY');
+    expect(runner.rollbackTransaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows an unreserved clear on the same transaction runner', async () => {
+    const runner = fixture();
+    const clear = jest.fn(async () =>
+      expect(runner.isTransactionActive).toBe(true),
+    );
+    await executeCallPersistence(
+      runner as unknown as QueryRunner,
+      'call',
+      object,
+      context,
+      [],
+      clear,
+      'all-rows',
+    );
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(runner.commitTransaction).toHaveBeenCalledTimes(1);
+  });
   it.each(['save', 'remove', 'soft-remove', 'recover'])(
     'rejects %s on a previously loaded Call now reserved',
     async () => {
