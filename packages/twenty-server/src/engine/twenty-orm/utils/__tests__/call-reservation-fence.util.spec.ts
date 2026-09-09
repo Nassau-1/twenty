@@ -19,11 +19,13 @@ import {
 const id = '00000000-0000-4000-8000-000000000001';
 const reservation = 'zo-pending:00000000-0000-4000-8000-000000000002';
 const object = getFlatObjectMetadataMock({
+  universalIdentifier: 'call-object',
   id: 'call-object',
   nameSingular: 'call',
   fieldIds: ['binding'],
 });
 const field = getFlatFieldMetadataMock({
+  universalIdentifier: 'binding',
   id: 'binding',
   objectMetadataId: object.id,
   name: 'vexaMeetingId',

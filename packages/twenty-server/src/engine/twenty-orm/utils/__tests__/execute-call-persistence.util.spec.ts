@@ -7,6 +7,7 @@ import { type WorkspaceInternalContext } from 'src/engine/twenty-orm/interfaces/
 import { executeCallPersistence } from 'src/engine/twenty-orm/utils/execute-call-persistence.util';
 
 const object = getFlatObjectMetadataMock({
+  universalIdentifier: 'call-object',
   id: 'call-object',
   nameSingular: 'call',
 });
@@ -14,6 +15,7 @@ const context = {
   flatFieldMetadataMaps: {
     byUniversalIdentifier: {
       binding: getFlatFieldMetadataMock({
+        universalIdentifier: 'binding',
         objectMetadataId: object.id,
         name: 'vexaMeetingId',
         type: FieldMetadataType.TEXT,
