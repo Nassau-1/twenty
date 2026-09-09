@@ -154,7 +154,7 @@ describe('Call reservation producer fence', () => {
     ).toBeUndefined();
   });
 
-  it.each([null, '0', '37'])(
+  it.each([null, '', '0', '37'])(
     'allows only explicit id-and-marker binding transition to %s',
     (meetingId) => {
       expect(
@@ -162,7 +162,11 @@ describe('Call reservation producer fence', () => {
           { id: { eq: id }, vexaMeetingId: { eq: reservation } },
           { vexaMeetingId: meetingId, updatedBy: {} },
         ),
-      ).toEqual({ callId: id, reservation, meetingId });
+      ).toEqual({
+        callId: id,
+        reservation,
+        meetingId: meetingId === '' ? null : meetingId,
+      });
     },
   );
 
@@ -185,22 +189,17 @@ describe('Call reservation producer fence', () => {
     ).toBeUndefined();
   });
 
-  it.each([
-    'zo-pending:other',
-    'other',
-    '9007199254740993',
-    '-1',
-    '1.5',
-    '01',
-    '',
-  ])('rejects invalid promotion %s', (meetingId) => {
-    expect(
-      getCallReservationTransition(
-        { id: { eq: id }, vexaMeetingId: { eq: reservation } },
-        { vexaMeetingId: meetingId },
-      ),
-    ).toBeUndefined();
-  });
+  it.each(['zo-pending:other', 'other', '9007199254740993', '-1', '1.5', '01'])(
+    'rejects invalid promotion %s',
+    (meetingId) => {
+      expect(
+        getCallReservationTransition(
+          { id: { eq: id }, vexaMeetingId: { eq: reservation } },
+          { vexaMeetingId: meetingId },
+        ),
+      ).toBeUndefined();
+    },
+  );
 
   it('does not accept wildcard, missing or grouped-only ownership predicates', () => {
     for (const filter of [

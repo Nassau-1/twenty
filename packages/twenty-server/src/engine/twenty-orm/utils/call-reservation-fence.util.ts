@@ -177,6 +177,7 @@ export function getCallReservationTransition(
     !Object.keys(data).every((key) => BINDING_FIELDS.has(key)) ||
     !(
       meetingId === null ||
+      meetingId === '' ||
       (typeof meetingId === 'string' &&
         /^(0|[1-9][0-9]*)$/.test(meetingId) &&
         Number.isSafeInteger(Number(meetingId)))
@@ -184,7 +185,13 @@ export function getCallReservationTransition(
   )
     return;
 
-  return { callId, reservation, meetingId };
+  // Non-nullable Twenty TEXT fields normalize an empty write to ''. Compare
+  // ownership transitions using the same semantic empty value before/after formatData.
+  return {
+    callId,
+    reservation,
+    meetingId: meetingId === '' ? null : meetingId,
+  };
 }
 
 export function callReservationFence(
