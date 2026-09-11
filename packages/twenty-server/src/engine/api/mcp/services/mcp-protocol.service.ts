@@ -15,6 +15,10 @@ import { JsonRpc } from 'src/engine/api/mcp/dtos/json-rpc';
 import { McpInstructionBuilderService } from 'src/engine/api/mcp/services/mcp-instruction-builder.service';
 import { McpToolExecutorService } from 'src/engine/api/mcp/services/mcp-tool-executor.service';
 import {
+  ZoDocumentSearchService,
+  zoDocumentSearchInputSchema,
+} from 'src/engine/api/mcp/services/zo-document-search.service';
+import {
   createListObjectMetadataNamesTool,
   LIST_OBJECT_METADATA_NAMES_TOOL_NAME,
   listObjectMetadataNamesInputSchema,
@@ -24,6 +28,10 @@ import {
   LIST_SKILLS_TOOL_NAME,
   listSkillsInputSchema,
 } from 'src/engine/api/mcp/tools/list-skills.tool';
+import {
+  createZoDocumentSearchTool,
+  ZO_DOCUMENT_SEARCH_TOOL_NAME,
+} from 'src/engine/api/mcp/tools/zo-document-search.tool';
 import { type McpToolAnnotations } from 'src/engine/api/mcp/types/mcp-tool-annotations.type';
 import { wrapJsonRpcResponse } from 'src/engine/api/mcp/utils/wrap-jsonrpc-response.util';
 import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
@@ -99,6 +107,7 @@ export class McpProtocolService {
     private readonly flatEntityMapsCacheService: WorkspaceManyOrAllFlatEntityMapsCacheService,
     private readonly workspaceCacheService: WorkspaceCacheService,
     private readonly mcpReadToolPolicyService: McpReadToolPolicyService,
+    private readonly zoDocumentSearchService: ZoDocumentSearchService,
   ) {}
 
   async handleInitialize(requestId: string | number, workspaceId: string) {
@@ -257,6 +266,17 @@ export class McpProtocolService {
         inputSchema: executeToolInputSchema,
         annotations: MCP_EXECUTE_TOOL_ANNOTATIONS,
       } as McpAnnotatedTool,
+      ...(isMcpReadClient && {
+        [ZO_DOCUMENT_SEARCH_TOOL_NAME]: {
+          ...createZoDocumentSearchTool(this.zoDocumentSearchService, {
+            workspaceId: workspace.id,
+            userId: options?.userId,
+            userWorkspaceId: options?.userWorkspaceId,
+          }),
+          inputSchema: zodSchema(zoDocumentSearchInputSchema),
+          annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
+        } as McpAnnotatedTool,
+      }),
       ...(!isMcpReadClient && {
         [LOAD_SKILL_TOOL_NAME]: {
           ...createLoadSkillTool(

@@ -5,6 +5,7 @@ import { McpAuthGuard } from 'src/engine/api/mcp/guards/mcp-auth.guard';
 import { McpInstructionBuilderService } from 'src/engine/api/mcp/services/mcp-instruction-builder.service';
 import { McpProtocolService } from 'src/engine/api/mcp/services/mcp-protocol.service';
 import { McpToolExecutorService } from 'src/engine/api/mcp/services/mcp-tool-executor.service';
+import { ZoDocumentSearchService } from 'src/engine/api/mcp/services/zo-document-search.service';
 import { ApiKeyModule } from 'src/engine/core-modules/api-key/api-key.module';
 import { MetricsModule } from 'src/engine/core-modules/metrics/metrics.module';
 import { TokenModule } from 'src/engine/core-modules/auth/token/token.module';
@@ -41,6 +42,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     McpInstructionBuilderService,
     McpProtocolService,
     McpToolExecutorService,
+    ZoDocumentSearchService,
   ],
 })
 export class McpModule {}

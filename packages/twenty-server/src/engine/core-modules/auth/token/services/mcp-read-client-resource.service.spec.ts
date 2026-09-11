@@ -4,16 +4,13 @@ import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twent
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const applicationId = '22222222-2222-4222-8222-222222222222';
-const functionId = '33333333-3333-4333-8333-333333333333';
 const zoApplicationId = '44444444-4444-4444-8444-444444444444';
 
 const validConfig = JSON.stringify({
   enrolledApplications: [{ workspaceId, applicationId }],
-  approvedZoReadFunction: {
+  approvedZoReadApplication: {
     workspaceId,
     applicationId: zoApplicationId,
-    logicFunctionId: functionId,
-    checksum: 'a'.repeat(32),
   },
 });
 
@@ -48,11 +45,9 @@ describe('McpReadClientResourceService', () => {
             applicationId: applicationId.toUpperCase(),
           },
         ],
-        approvedZoReadFunction: {
+        approvedZoReadApplication: {
           workspaceId: workspaceId.toUpperCase(),
           applicationId: zoApplicationId.toUpperCase(),
-          logicFunctionId: functionId.toUpperCase(),
-          checksum: 'A'.repeat(32),
         },
       }),
     );
@@ -66,11 +61,19 @@ describe('McpReadClientResourceService', () => {
     '{',
     JSON.stringify({
       enrolledApplications: [{ workspaceId, applicationId }],
+      approvedZoReadApplication: {
+        workspaceId,
+        applicationId: zoApplicationId,
+      },
+      extra: true,
+    }),
+    JSON.stringify({
+      enrolledApplications: [{ workspaceId, applicationId }],
       approvedZoReadFunction: {
         workspaceId,
-        applicationId,
-        logicFunctionId: functionId,
-        checksum: 'not-a-checksum',
+        applicationId: zoApplicationId,
+        logicFunctionId: '33333333-3333-4333-8333-333333333333',
+        checksum: 'a'.repeat(32),
       },
     }),
     JSON.stringify({
@@ -78,11 +81,9 @@ describe('McpReadClientResourceService', () => {
         { workspaceId, applicationId },
         { workspaceId, applicationId },
       ],
-      approvedZoReadFunction: {
+      approvedZoReadApplication: {
         workspaceId,
-        applicationId,
-        logicFunctionId: functionId,
-        checksum: 'a'.repeat(32),
+        applicationId: zoApplicationId,
       },
     }),
   ])('fails closed for invalid server configuration', (value) => {
@@ -99,17 +100,15 @@ describe('McpReadClientResourceService', () => {
     expect(service.resourceFor({ workspaceId, applicationId })).toBeUndefined();
   });
 
-  it('returns only the exact current approved function binding', () => {
+  it('returns only the exact current approved execution application binding', () => {
     config.get.mockReturnValue(validConfig);
 
-    expect(service.approvedZoReadFunction(workspaceId)).toEqual({
+    expect(service.approvedZoReadApplication(workspaceId)).toEqual({
       workspaceId,
       applicationId: zoApplicationId,
-      logicFunctionId: functionId,
-      checksum: 'a'.repeat(32),
     });
     expect(
-      service.approvedZoReadFunction('44444444-4444-4444-8444-444444444444'),
+      service.approvedZoReadApplication('44444444-4444-4444-8444-444444444444'),
     ).toBeUndefined();
   });
 
@@ -117,11 +116,9 @@ describe('McpReadClientResourceService', () => {
     config.get.mockReturnValue(
       JSON.stringify({
         enrolledApplications: [{ workspaceId, applicationId }],
-        approvedZoReadFunction: {
+        approvedZoReadApplication: {
           workspaceId,
           applicationId,
-          logicFunctionId: functionId,
-          checksum: 'a'.repeat(32),
         },
       }),
     );

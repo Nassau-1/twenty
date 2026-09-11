@@ -225,8 +225,10 @@ export class AccessTokenService {
     });
     const isMarked =
       authContext.applicationTokenResource === MCP_READ_TOKEN_RESOURCE;
+    const normalizedPath =
+      request.path.toLowerCase().replace(/\/+$/, '') || '/';
     const isMcpReadRequest =
-      request.method === 'POST' && request.path === '/mcp';
+      request.method === 'POST' && normalizedPath === '/mcp';
 
     if (
       (isEnrolled && !isMarked) ||

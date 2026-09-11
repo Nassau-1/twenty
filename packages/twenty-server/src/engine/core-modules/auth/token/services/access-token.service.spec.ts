@@ -340,33 +340,64 @@ describe('AccessTokenService', () => {
       },
     );
 
-    it('permits a marked MCP read application token only on POST /mcp', async () => {
-      const mockToken = 'marked-token';
-      const mockAuthContext = {
-        workspace: { id: 'workspace-id' },
-        application: { id: 'application-id' },
-        applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
-      };
+    it.each(['/mcp', '/mcp/', '/MCP', '/MCP/'])(
+      'permits a marked MCP read application token only on routed POST %s',
+      async (path) => {
+        const mockToken = 'marked-token';
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
 
-      jest
-        .spyOn(jwtWrapperService, 'extractJwtFromRequest')
-        .mockReturnValue(() => mockToken);
-      jest
-        .spyOn(jwtWrapperService, 'verifyJwtToken')
-        .mockResolvedValue(undefined);
-      jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
-      jest
-        .spyOn(service['jwtStrategy'], 'validate')
-        .mockResolvedValue(mockAuthContext as never);
-      mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(true);
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
 
-      await expect(
-        service.validateTokenByRequest({
-          method: 'POST',
-          path: '/mcp',
-        } as Request),
-      ).resolves.toEqual(mockAuthContext);
-    });
+        await expect(
+          service.validateTokenByRequest({ method: 'POST', path } as Request),
+        ).resolves.toEqual(mockAuthContext);
+      },
+    );
+
+    it.each(['/mcp/search', '/mcp//search', '/mcp/other/'])(
+      'rejects a marked MCP read token outside the routed MCP path: %s',
+      async (path) => {
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => 'marked-token');
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
+
+        await expect(
+          service.validateTokenByRequest({ method: 'POST', path } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
 
     it.each([
       [

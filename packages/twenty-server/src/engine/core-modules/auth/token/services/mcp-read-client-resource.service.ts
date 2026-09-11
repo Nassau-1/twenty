@@ -11,14 +11,9 @@ type EnrolledApplication = {
   applicationId: string;
 };
 
-type ApprovedZoReadFunction = EnrolledApplication & {
-  logicFunctionId: string;
-  checksum: string;
-};
-
 type McpReadClientResourceConfig = {
   enrolledApplications: readonly EnrolledApplication[];
-  approvedZoReadFunction: ApprovedZoReadFunction;
+  approvedZoReadApplication: EnrolledApplication;
 };
 
 export class McpReadClientResourceConfigError extends Error {
@@ -29,7 +24,6 @@ export class McpReadClientResourceConfigError extends Error {
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const CHECKSUM_PATTERN = /^[0-9a-f]{32}$/i;
 
 const isExactObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -55,17 +49,14 @@ const parseEnrolledApplication = (
   };
 };
 
-const parseApprovedZoReadFunction = (
+const parseApprovedZoReadApplication = (
   value: unknown,
-): ApprovedZoReadFunction | undefined => {
+): EnrolledApplication | undefined => {
   if (
     !isExactObject(value) ||
-    Object.keys(value).length !== 4 ||
+    Object.keys(value).length !== 2 ||
     !isUuid(value.workspaceId) ||
-    !isUuid(value.applicationId) ||
-    !isUuid(value.logicFunctionId) ||
-    typeof value.checksum !== 'string' ||
-    !CHECKSUM_PATTERN.test(value.checksum)
+    !isUuid(value.applicationId)
   ) {
     return undefined;
   }
@@ -73,8 +64,6 @@ const parseApprovedZoReadFunction = (
   return {
     workspaceId: value.workspaceId.toLowerCase(),
     applicationId: value.applicationId.toLowerCase(),
-    logicFunctionId: value.logicFunctionId.toLowerCase(),
-    checksum: value.checksum.toLowerCase(),
   };
 };
 
@@ -109,10 +98,10 @@ export class McpReadClientResourceService {
     );
   }
 
-  approvedZoReadFunction(
+  approvedZoReadApplication(
     workspaceId: string,
-  ): ApprovedZoReadFunction | undefined {
-    const binding = this.readConfig()?.approvedZoReadFunction;
+  ): EnrolledApplication | undefined {
+    const binding = this.readConfig()?.approvedZoReadApplication;
 
     return binding?.workspaceId === workspaceId.toLowerCase()
       ? binding
@@ -140,14 +129,14 @@ export class McpReadClientResourceService {
       const enrolledApplications = parsed.enrolledApplications.map(
         parseEnrolledApplication,
       );
-      const approvedZoReadFunction = parseApprovedZoReadFunction(
-        parsed.approvedZoReadFunction,
+      const approvedZoReadApplication = parseApprovedZoReadApplication(
+        parsed.approvedZoReadApplication,
       );
 
       if (
         enrolledApplications.length === 0 ||
         enrolledApplications.some((entry) => entry === undefined) ||
-        !approvedZoReadFunction
+        !approvedZoReadApplication
       ) {
         throw new McpReadClientResourceConfigError();
       }
@@ -165,8 +154,8 @@ export class McpReadClientResourceService {
       if (
         enrolledApplications.some(
           (entry) =>
-            entry.workspaceId === approvedZoReadFunction.workspaceId &&
-            entry.applicationId === approvedZoReadFunction.applicationId,
+            entry.workspaceId === approvedZoReadApplication.workspaceId &&
+            entry.applicationId === approvedZoReadApplication.applicationId,
         )
       ) {
         throw new McpReadClientResourceConfigError();
@@ -174,7 +163,7 @@ export class McpReadClientResourceService {
 
       return {
         enrolledApplications: enrolledApplications as EnrolledApplication[],
-        approvedZoReadFunction,
+        approvedZoReadApplication,
       };
     } catch (error) {
       if (error instanceof McpReadClientResourceConfigError) {
