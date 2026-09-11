@@ -1,6 +1,6 @@
 import {
-  type ZoDocumentSearchInput,
   type ZoDocumentSearchService,
+  zoDocumentSearchInputSchema,
 } from 'src/engine/api/mcp/services/zo-document-search.service';
 
 export const ZO_DOCUMENT_SEARCH_TOOL_NAME = 'search_zo_documents';
@@ -15,6 +15,9 @@ export const createZoDocumentSearchTool = (
 ) => ({
   description:
     'Search authorized ZO document excerpts. Results are limited to indexed documents you are currently allowed to read; no result does not prove absence.',
-  execute: (input: ZoDocumentSearchInput) =>
-    zoDocumentSearchService.search({ ...context, input }),
+  execute: (input: unknown) =>
+    zoDocumentSearchService.search({
+      ...context,
+      input: zoDocumentSearchInputSchema.parse(input),
+    }),
 });
