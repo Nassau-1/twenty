@@ -67,6 +67,17 @@ import {
 export class ConfigVariables {
   @ConfigVariablesMetadata({
     group: ConfigVariablesGroup.ADVANCED_SETTINGS,
+    description:
+      'Server-owned enrollment and approved read-function binding for restricted MCP application tokens',
+    isEnvOnly: true,
+    isSensitive: true,
+    type: ConfigVariableType.STRING,
+  })
+  @IsOptional()
+  MCP_READ_CLIENT_RESOURCE_CONFIG: string | undefined;
+
+  @ConfigVariablesMetadata({
+    group: ConfigVariablesGroup.ADVANCED_SETTINGS,
     description: 'Enable or disable password authentication for users',
     type: ConfigVariableType.BOOLEAN,
   })

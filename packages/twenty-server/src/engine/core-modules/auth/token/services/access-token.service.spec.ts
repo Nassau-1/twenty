@@ -8,11 +8,19 @@ import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
 import { Repository } from 'typeorm';
 
 import { AppTokenEntity } from 'src/engine/core-modules/app-token/app-token.entity';
-import { AuthException } from 'src/engine/core-modules/auth/auth.exception';
+import {
+  AuthException,
+  AuthExceptionCode,
+} from 'src/engine/core-modules/auth/auth.exception';
 import { JwtAuthStrategy } from 'src/engine/core-modules/auth/strategies/jwt.auth.strategy';
 import { EmailService } from 'src/engine/core-modules/email/email.service';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { AuthProviderEnum } from 'src/engine/core-modules/workspace/types/workspace.type';
@@ -20,6 +28,40 @@ import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.ent
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 
 import { AccessTokenService } from './access-token.service';
+
+const askZoCurrentPrincipalQuery = `
+query AskZoCurrentPrincipal {
+  currentUser {
+    id
+    currentWorkspace { id defaultRole { id universalIdentifier } }
+    currentUserWorkspace {
+      id
+      objectsPermissions {
+        objectMetadataId
+        canReadObjectRecords
+        canUpdateObjectRecords
+        restrictedFields
+        rowLevelPermissionPredicates { id }
+        rowLevelPermissionPredicateGroups { id }
+      }
+    }
+    workspaceMember {
+      id
+      userWorkspaceId
+      roles {
+        id
+        universalIdentifier
+        label
+        canUpdateAllSettings
+        canAccessAllTools
+        canReadAllObjectRecords
+      }
+    }
+  }
+  minimalMetadata {
+    objectMetadataItems { id nameSingular namePlural isActive isSystem }
+  }
+}`;
 
 describe('AccessTokenService', () => {
   let service: AccessTokenService;
@@ -29,6 +71,7 @@ describe('AccessTokenService', () => {
   let workspaceRepository: Repository<WorkspaceEntity>;
   let globalWorkspaceOrmManager: GlobalWorkspaceOrmManager;
   let userWorkspaceRepository: Repository<UserWorkspaceEntity>;
+  let mcpReadClientResourceService: jest.Mocked<McpReadClientResourceService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +128,13 @@ describe('AccessTokenService', () => {
               .mockImplementation((fn: () => any, _authContext?: any) => fn()),
           },
         },
+        {
+          provide: McpReadClientResourceService,
+          useValue: {
+            isEnrolledApplication: jest.fn().mockReturnValue(false),
+            isApprovedZoReadApplication: jest.fn().mockReturnValue(false),
+          },
+        },
       ],
     }).compile();
 
@@ -103,6 +153,7 @@ describe('AccessTokenService', () => {
     userWorkspaceRepository = module.get<Repository<UserWorkspaceEntity>>(
       getRepositoryToken(UserWorkspaceEntity),
     );
+    mcpReadClientResourceService = module.get(McpReadClientResourceService);
   });
 
   it('should be defined', () => {
@@ -292,6 +343,311 @@ describe('AccessTokenService', () => {
       await expect(service.validateTokenByRequest(mockRequest)).rejects.toThrow(
         AuthException,
       );
+    });
+
+    it.each([
+      ['GraphQL hydration', 'POST', '/graphql'],
+      ['OpenAPI and route validation', 'GET', '/rest/companies'],
+    ])(
+      'rejects a marked MCP read application token during %s',
+      async (_caller, method, path) => {
+        const mockToken = 'marked-token';
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
+
+        await expect(
+          service.validateTokenByRequest({ method, path } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it.each(['/mcp', '/mcp/', '/MCP', '/MCP/'])(
+      'permits a marked MCP read application token only on routed POST %s',
+      async (path) => {
+        const mockToken = 'marked-token';
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
+
+        await expect(
+          service.validateTokenByRequest({ method: 'POST', path } as Request),
+        ).resolves.toEqual(mockAuthContext);
+      },
+    );
+
+    it.each(['/mcp//', '/mcp/search', '/mcp//search', '/mcp/other/'])(
+      'rejects a marked MCP read token outside the routed MCP path: %s',
+      async (path) => {
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => 'marked-token');
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
+
+        await expect(
+          service.validateTokenByRequest({ method: 'POST', path } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it.each([
+      [
+        'an old unmarked token for a newly enrolled application',
+        undefined,
+        true,
+      ],
+      [
+        'a marked token after enrollment removal',
+        MCP_READ_TOKEN_RESOURCE,
+        false,
+      ],
+    ])(
+      'rejects %s through shared request validation',
+      async (_description, applicationTokenResource, isEnrolled) => {
+        const mockToken = 'application-token';
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          ...(applicationTokenResource ? { applicationTokenResource } : {}),
+        } as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          isEnrolled,
+        );
+
+        await expect(
+          service.validateTokenByRequest({
+            method: 'POST',
+            path: '/mcp',
+          } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    const setZoDocumentSearchContext = () => {
+      jest
+        .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+        .mockReturnValue(() => 'zo-document-search-token');
+      jest
+        .spyOn(jwtWrapperService, 'verifyJwtToken')
+        .mockResolvedValue(undefined);
+      jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+      jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+        workspace: { id: 'workspace-id' },
+        application: { id: 'zo-application-id' },
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+        user: { id: 'user-id' },
+        userWorkspace: { id: 'user-workspace-id' },
+        userWorkspaceId: 'user-workspace-id',
+      } as never);
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        true,
+      );
+    };
+
+    it('permits the one exact metadata principal query for a scoped ZO token', async () => {
+      setZoDocumentSearchContext();
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).resolves.toMatchObject({
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      });
+    });
+
+    it.each([
+      ['the MCP route', 'POST', '/mcp', askZoCurrentPrincipalQuery, {}],
+      ['a non-POST metadata request', 'GET', '/metadata', askZoCurrentPrincipalQuery, {}],
+      [
+        'a query with an extra field',
+        'POST',
+        '/metadata',
+        askZoCurrentPrincipalQuery.replace('currentUser {', 'currentUser { id'),
+        {},
+      ],
+      [
+        'an aliased query',
+        'POST',
+        '/metadata',
+        askZoCurrentPrincipalQuery.replace('currentUser {', 'principal: currentUser {'),
+        {},
+      ],
+      ['non-empty variables', 'POST', '/metadata', askZoCurrentPrincipalQuery, { value: 'x' }],
+    ])(
+      'rejects a scoped ZO token for %s',
+      async (_description, method, path, query, variables) => {
+        setZoDocumentSearchContext();
+
+        await expect(
+          service.validateTokenByRequest({
+            method,
+            path,
+            body: {
+              operationName: 'AskZoCurrentPrincipal',
+              query,
+              variables,
+            },
+          } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it('rejects a scoped ZO token after its execution-app binding is removed', async () => {
+      setZoDocumentSearchContext();
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        false,
+      );
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('rejects an unmarked token for the reserved ZO execution app', async () => {
+      jest
+        .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+        .mockReturnValue(() => 'unmarked-zo-token');
+      jest
+        .spyOn(jwtWrapperService, 'verifyJwtToken')
+        .mockResolvedValue(undefined);
+      jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+      jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+        workspace: { id: 'workspace-id' },
+        application: { id: 'zo-application-id' },
+      } as never);
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        true,
+      );
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('rejects a scoped ZO token after its bound user no longer resolves', async () => {
+      setZoDocumentSearchContext();
+      jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+        workspace: { id: 'workspace-id' },
+        application: { id: 'zo-application-id' },
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      } as never);
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('requires an active workspace member for a scoped ZO token in a provisioned workspace', async () => {
+      setZoDocumentSearchContext();
+      jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+        workspace: {
+          id: 'workspace-id',
+          activationStatus: WorkspaceActivationStatus.ACTIVE,
+        },
+        application: { id: 'zo-application-id' },
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+        user: { id: 'user-id' },
+        userWorkspace: { id: 'user-workspace-id' },
+        userWorkspaceId: 'user-workspace-id',
+      } as never);
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
     });
   });
 });

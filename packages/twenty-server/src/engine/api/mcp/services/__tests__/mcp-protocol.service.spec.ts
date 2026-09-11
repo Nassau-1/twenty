@@ -1,3 +1,8 @@
+jest.mock(
+  'src/engine/core-modules/tool-provider/services/tool-registry.service',
+  () => ({ ToolRegistryService: class ToolRegistryService {} }),
+);
+
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { FieldActorSource } from 'twenty-shared/types';
@@ -12,15 +17,19 @@ import { type JsonRpc } from 'src/engine/api/mcp/dtos/json-rpc';
 import { McpInstructionBuilderService } from 'src/engine/api/mcp/services/mcp-instruction-builder.service';
 import { McpProtocolService } from 'src/engine/api/mcp/services/mcp-protocol.service';
 import { McpToolExecutorService } from 'src/engine/api/mcp/services/mcp-tool-executor.service';
+import { ZoDocumentSearchService } from 'src/engine/api/mcp/services/zo-document-search.service';
 import { LIST_OBJECT_METADATA_NAMES_TOOL_NAME } from 'src/engine/api/mcp/tools/list-object-metadata-names.tool';
 import { LIST_SKILLS_TOOL_NAME } from 'src/engine/api/mcp/tools/list-skills.tool';
+import { ZO_DOCUMENT_SEARCH_TOOL_NAME } from 'src/engine/api/mcp/tools/zo-document-search.tool';
 import { type McpToolAnnotations } from 'src/engine/api/mcp/types/mcp-tool-annotations.type';
 import { type FlatApiKey } from 'src/engine/core-modules/api-key/types/flat-api-key.type';
 import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
 import { EXECUTE_TOOL_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/execute-tool.tool';
+import { GET_TOOL_CATALOG_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/get-tool-catalog.tool';
 import { LEARN_TOOLS_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/learn-tools.tool';
 import { LOAD_SKILL_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/load-skill.tool';
 import { ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { McpReadToolPolicyService } from 'src/engine/core-modules/tool-provider/services/mcp-read-tool-policy.service';
 import { type FlatWorkspace } from 'src/engine/core-modules/workspace/types/flat-workspace.type';
 import { WorkspaceManyOrAllFlatEntityMapsCacheService } from 'src/engine/metadata-modules/flat-entity/services/workspace-many-or-all-flat-entity-maps-cache.service';
 import { SkillService } from 'src/engine/metadata-modules/skill/skill.service';
@@ -33,6 +42,8 @@ describe('McpProtocolService', () => {
   let userRoleService: jest.Mocked<UserRoleService>;
   let mcpToolExecutorService: jest.Mocked<McpToolExecutorService>;
   let apiKeyRoleService: jest.Mocked<ApiKeyRoleService>;
+  let mcpReadToolPolicyService: jest.Mocked<McpReadToolPolicyService>;
+  let zoDocumentSearchService: jest.Mocked<ZoDocumentSearchService>;
 
   const mockWorkspace = { id: 'workspace-1' } as FlatWorkspace;
   const mockUserWorkspaceId = 'user-workspace-1';
@@ -135,6 +146,17 @@ describe('McpProtocolService', () => {
             }),
           },
         },
+        {
+          provide: McpReadToolPolicyService,
+          useValue: {
+            isMcpReadClient: jest.fn().mockReturnValue(false),
+            isDescriptorAllowed: jest.fn().mockResolvedValue(true),
+          },
+        },
+        {
+          provide: ZoDocumentSearchService,
+          useValue: { search: jest.fn() },
+        },
       ],
     }).compile();
 
@@ -143,6 +165,8 @@ describe('McpProtocolService', () => {
     userRoleService = module.get(UserRoleService);
     mcpToolExecutorService = module.get(McpToolExecutorService);
     apiKeyRoleService = module.get(ApiKeyRoleService);
+    mcpReadToolPolicyService = module.get(McpReadToolPolicyService);
+    zoDocumentSearchService = module.get(ZoDocumentSearchService);
   });
 
   it('should be defined', () => {
@@ -376,6 +400,89 @@ describe('McpProtocolService', () => {
           }),
         }),
       );
+    });
+
+    it('removes preloaded tools and injects descriptor policy for an enrolled MCP read client', async () => {
+      userRoleService.getRoleIdForUserWorkspace.mockResolvedValue(mockRoleId);
+      mcpReadToolPolicyService.isMcpReadClient.mockReturnValue(true);
+      mcpToolExecutorService.handleToolsListing.mockReturnValue({
+        id: '123',
+        jsonrpc: '2.0',
+        result: { tools: [] },
+      });
+
+      await service.handleMCPCoreQuery(
+        { jsonrpc: '2.0', method: 'tools/list', id: '123' },
+        {
+          workspace: mockWorkspace,
+          userWorkspaceId: mockUserWorkspaceId,
+          apiKey: undefined,
+          application: { id: 'application-id' } as never,
+        },
+      );
+
+      expect(_toolRegistryService.getToolsByName).not.toHaveBeenCalled();
+      expect(mcpToolExecutorService.handleToolsListing).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          [GET_TOOL_CATALOG_TOOL_NAME]: expect.any(Object),
+          [EXECUTE_TOOL_TOOL_NAME]: expect.any(Object),
+          [LEARN_TOOLS_TOOL_NAME]: expect.any(Object),
+          [ZO_DOCUMENT_SEARCH_TOOL_NAME]: expect.any(Object),
+        }),
+      );
+      const toolSet =
+        mcpToolExecutorService.handleToolsListing.mock.calls[0][1];
+
+      expect(Object.keys(toolSet)).toEqual(
+        expect.arrayContaining([
+          GET_TOOL_CATALOG_TOOL_NAME,
+          EXECUTE_TOOL_TOOL_NAME,
+          LEARN_TOOLS_TOOL_NAME,
+          ZO_DOCUMENT_SEARCH_TOOL_NAME,
+        ]),
+      );
+      expect(Object.keys(toolSet)).toHaveLength(4);
+    });
+
+    it('binds the static document tool to the current authenticated user context', async () => {
+      userRoleService.getRoleIdForUserWorkspace.mockResolvedValue(mockRoleId);
+      mcpReadToolPolicyService.isMcpReadClient.mockReturnValue(true);
+      mcpToolExecutorService.handleToolsListing.mockReturnValue({
+        id: '123',
+        jsonrpc: '2.0',
+        result: { tools: [] },
+      });
+      zoDocumentSearchService.search.mockResolvedValue({
+        kind: 'zo_document_search',
+        sources: [],
+        coverage: 'indexed_authorized_documents',
+        searchTruncated: false,
+      });
+
+      await service.handleMCPCoreQuery(
+        { jsonrpc: '2.0', method: 'tools/list', id: '123' },
+        {
+          workspace: mockWorkspace,
+          userId: 'user-id',
+          userWorkspaceId: mockUserWorkspaceId,
+          apiKey: undefined,
+          application: { id: 'application-id' } as never,
+        },
+      );
+
+      const toolSet =
+        mcpToolExecutorService.handleToolsListing.mock.calls[0][1];
+      const tool = toolSet[ZO_DOCUMENT_SEARCH_TOOL_NAME];
+
+      await tool.execute?.({ query: 'Read evidence' }, {} as never);
+
+      expect(zoDocumentSearchService.search).toHaveBeenCalledWith({
+        workspaceId: mockWorkspace.id,
+        userId: 'user-id',
+        userWorkspaceId: mockUserWorkspaceId,
+        input: expect.objectContaining({ query: 'Read evidence' }),
+      });
     });
 
     it('should return prompts list without role resolution', async () => {

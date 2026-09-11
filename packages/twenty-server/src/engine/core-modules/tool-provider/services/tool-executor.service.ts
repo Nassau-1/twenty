@@ -269,6 +269,8 @@ export class ToolExecutorService {
       logicFunctionId: ref.logicFunctionId,
       workspaceId: context.workspaceId,
       payload: args,
+      userId: context.userId,
+      userWorkspaceId: context.userWorkspaceId,
     });
 
     if (result.error) {

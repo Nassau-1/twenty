@@ -8,6 +8,7 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { type JwtPayload } from 'src/engine/core-modules/auth/types/jwt-payload.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
+import { ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { ImpersonationAuthorizationService } from 'src/engine/core-modules/impersonation/services/impersonation-authorization.service';
 import { NodeEnvironment } from 'src/engine/core-modules/twenty-config/interfaces/node-environment.interface';
 import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.entity';
@@ -431,6 +432,32 @@ describe('JwtAuthStrategy', () => {
       } catch (e) {
         expect(e.code).toBe(AuthExceptionCode.APPLICATION_NOT_FOUND);
       }
+    });
+
+    it('preserves the recognized ZO document search resource in the application context', async () => {
+      const applicationId = randomUUID();
+      const workspaceId = randomUUID();
+      const workspace = new WorkspaceEntity();
+      workspace.id = workspaceId;
+      workspaceStore[workspaceId] = workspace;
+      applicationStore[workspaceId] = {
+        [applicationId]: { id: applicationId },
+      };
+
+      strategy = createStrategy();
+
+      await expect(
+        strategy.validate({
+          sub: applicationId,
+          type: JwtTokenTypeEnum.APPLICATION_ACCESS,
+          applicationId,
+          workspaceId,
+          resource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+        } as JwtPayload),
+      ).resolves.toMatchObject({
+        application: { id: applicationId },
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      });
     });
   });
 

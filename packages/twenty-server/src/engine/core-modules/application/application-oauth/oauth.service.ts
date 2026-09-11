@@ -19,6 +19,7 @@ import { ApplicationService } from 'src/engine/core-modules/application/applicat
 import { OAuthErrorResponse } from 'src/engine/core-modules/application/application-oauth/types/oauth-error-response.type';
 import { OAuthTokenResponse } from 'src/engine/core-modules/application/application-oauth/types/oauth-token-response.type';
 import { ApplicationTokenService } from 'src/engine/core-modules/auth/token/services/application-token.service';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 
@@ -38,6 +39,7 @@ export class OAuthService {
     private readonly applicationService: ApplicationService,
     private readonly applicationInstallService: ApplicationInstallService,
     private readonly twentyConfigService: TwentyConfigService,
+    private readonly mcpReadClientResourceService: McpReadClientResourceService,
   ) {}
 
   async exchangeAuthorizationCode(params: {
@@ -286,6 +288,18 @@ export class OAuthService {
     }
 
     const application = applications[0];
+
+    if (
+      this.mcpReadClientResourceService.isEnrolledApplication({
+        workspaceId: application.workspaceId,
+        applicationId: application.id,
+      })
+    ) {
+      return this.errorResponse(
+        'unauthorized_client',
+        'This client requires an authorization-code grant',
+      );
+    }
 
     const applicationAccessToken =
       await this.applicationTokenService.generateApplicationAccessToken({

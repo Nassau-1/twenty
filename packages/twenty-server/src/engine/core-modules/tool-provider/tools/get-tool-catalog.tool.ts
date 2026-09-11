@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { ToolCategory } from 'twenty-shared/ai';
 import { type ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { type ToolDescriptorPolicy } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
 import { type ToolIndexEntry } from 'src/engine/core-modules/tool-provider/types/tool-index-entry.type';
 
 export const GET_TOOL_CATALOG_TOOL_NAME = 'get_tool_catalog';
@@ -34,6 +35,7 @@ export const createGetToolCatalogTool = (
     userId?: string;
     userWorkspaceId?: string;
     excludeTools?: Set<string>;
+    isDescriptorAllowed?: ToolDescriptorPolicy;
   },
 ) => ({
   description:
