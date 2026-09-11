@@ -151,8 +151,8 @@ const matchesSelection = (
     if (
       field.name.value !== expectedField.name ||
       field.alias ||
-      field.arguments.length !== 0 ||
-      field.directives.length !== 0
+      (field.arguments?.length ?? 0) !== 0 ||
+      (field.directives?.length ?? 0) !== 0
     ) {
       return false;
     }
@@ -192,8 +192,8 @@ const isAskZoCurrentPrincipalRequest = (request: Request): boolean => {
       operation.kind === Kind.OPERATION_DEFINITION &&
       operation.operation === 'query' &&
       operation.name?.value === 'AskZoCurrentPrincipal' &&
-      operation.variableDefinitions.length === 0 &&
-      operation.directives.length === 0 &&
+      (operation.variableDefinitions?.length ?? 0) === 0 &&
+      (operation.directives?.length ?? 0) === 0 &&
       matchesSelection(operation.selectionSet, ASK_ZO_CURRENT_PRINCIPAL_SELECTION)
     );
   } catch {
