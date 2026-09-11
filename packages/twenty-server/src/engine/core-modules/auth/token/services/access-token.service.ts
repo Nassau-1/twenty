@@ -11,7 +11,7 @@ import {
   type SelectionSetNode,
 } from 'graphql';
 import ms from 'ms';
-import { assertIsDefinedOrThrow } from 'twenty-shared/utils';
+import { assertIsDefinedOrThrow, isDefined } from 'twenty-shared/utils';
 import { isWorkspaceProvisioned } from 'twenty-shared/workspace';
 import { Repository } from 'typeorm';
 
@@ -399,17 +399,25 @@ export class AccessTokenService {
     const isMcpReadRequest =
       request.method === 'POST' && /^\/mcp\/?$/i.test(request.path);
     const isApprovedZoReadApplication =
-      isZoDocumentSearch &&
       this.mcpReadClientResourceService.isApprovedZoReadApplication({
         workspaceId: authContext.workspace.id,
         applicationId: authContext.application.id,
       });
+    const hasCurrentZoDocumentSearchUserBinding =
+      isDefined(authContext.user) &&
+      isDefined(authContext.userWorkspace) &&
+      authContext.userWorkspaceId === authContext.userWorkspace.id &&
+      (!isWorkspaceProvisioned(authContext.workspace) ||
+        (isDefined(authContext.workspaceMember) &&
+          isDefined(authContext.workspaceMemberId)));
 
     if (
       (isEnrolled && !isMarked) ||
       (isMarked && !isEnrolled) ||
       (isMarked && !isMcpReadRequest) ||
+      (isApprovedZoReadApplication && !isZoDocumentSearch) ||
       (isZoDocumentSearch && !isApprovedZoReadApplication) ||
+      (isZoDocumentSearch && !hasCurrentZoDocumentSearchUserBinding) ||
       (isZoDocumentSearch && !isAskZoCurrentPrincipalRequest(request))
     ) {
       throw new AuthException(

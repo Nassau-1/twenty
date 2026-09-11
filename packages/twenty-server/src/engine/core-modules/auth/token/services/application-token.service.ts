@@ -61,6 +61,10 @@ export class ApplicationTokenService {
     userId?: string;
   }): Promise<AuthToken> {
     await this.validateWorkspaceAndApplication(workspaceId, applicationId);
+    this.assertNotReservedZoDocumentSearchApplication({
+      workspaceId,
+      applicationId,
+    });
     const resource = this.mcpReadClientResourceService.resourceFor({
       workspaceId,
       applicationId,
@@ -149,6 +153,10 @@ export class ApplicationTokenService {
     applicationRefreshToken: AuthToken;
   }> {
     await this.validateWorkspaceAndApplication(workspaceId, applicationId);
+    this.assertNotReservedZoDocumentSearchApplication({
+      workspaceId,
+      applicationId,
+    });
     const resource = this.mcpReadClientResourceService.resourceFor({
       workspaceId,
       applicationId,
@@ -309,6 +317,10 @@ export class ApplicationTokenService {
       payload.workspaceId,
       payload.applicationId,
     );
+    this.assertNotReservedZoDocumentSearchApplication({
+      workspaceId: payload.workspaceId,
+      applicationId: payload.applicationId,
+    });
     const currentResource = this.mcpReadClientResourceService.resourceFor({
       workspaceId: payload.workspaceId,
       applicationId: payload.applicationId,
@@ -358,6 +370,26 @@ export class ApplicationTokenService {
         ApplicationExceptionCode.APPLICATION_NOT_FOUND,
       ),
     );
+  }
+
+  private assertNotReservedZoDocumentSearchApplication({
+    workspaceId,
+    applicationId,
+  }: {
+    workspaceId: string;
+    applicationId: string;
+  }): void {
+    if (
+      this.mcpReadClientResourceService.isApprovedZoReadApplication({
+        workspaceId,
+        applicationId,
+      })
+    ) {
+      throw new AuthException(
+        'ZO document search application tokens are server-issued only',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
   }
 
   private async assertMcpReadUserBinding({

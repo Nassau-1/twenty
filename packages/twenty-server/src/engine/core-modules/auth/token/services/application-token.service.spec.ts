@@ -248,6 +248,32 @@ describe('ApplicationTokenService', () => {
     });
   });
 
+  it('reserves the configured ZO execution app from generic issuance and renewal', async () => {
+    const workspaceId = 'workspace-id';
+    const applicationId = 'zo-application-id';
+
+    jest
+      .spyOn(workspaceRepository, 'findOne')
+      .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+    jest
+      .spyOn(applicationRepository, 'findOne')
+      .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+    mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+      true,
+    );
+
+    await expect(
+      service.generateApplicationAccessToken({ workspaceId, applicationId }),
+    ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    await expect(
+      service.generateApplicationTokenPair({ workspaceId, applicationId }),
+    ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    await expect(
+      service.renewApplicationTokens({ workspaceId, applicationId }),
+    ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    expect(jwtWrapperService.signAsyncOrThrow).not.toHaveBeenCalled();
+  });
+
   it('should throw an error if application is not found', async () => {
     const workspaceId = 'workspace-id';
 
