@@ -23,6 +23,11 @@ import {
   AuthExceptionCode,
 } from 'src/engine/core-modules/auth/auth.exception';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  type ApplicationTokenResource,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 
 const APPLICATION_REFRESH_TOKEN_INVALID_OR_EXPIRED_MESSAGE =
   'Application refresh token invalid or expired';
@@ -37,6 +42,7 @@ export class ApplicationTokenService {
     @InjectRepository(ApplicationEntity)
     private readonly applicationRepository: Repository<ApplicationEntity>,
     private readonly twentyConfigService: TwentyConfigService,
+    private readonly mcpReadClientResourceService: McpReadClientResourceService,
   ) {}
 
   async generateApplicationAccessToken({
@@ -51,6 +57,10 @@ export class ApplicationTokenService {
     userId?: string;
   }): Promise<AuthToken> {
     await this.validateWorkspaceAndApplication(workspaceId, applicationId);
+    const resource = this.mcpReadClientResourceService.resourceFor({
+      workspaceId,
+      applicationId,
+    });
 
     const expiresIn = this.twentyConfigService.get(
       'APPLICATION_ACCESS_TOKEN_EXPIRES_IN',
@@ -63,6 +73,7 @@ export class ApplicationTokenService {
       userId,
       tokenType: JwtTokenTypeEnum.APPLICATION_ACCESS,
       expiresIn,
+      resource,
     });
   }
 
@@ -81,7 +92,36 @@ export class ApplicationTokenService {
     applicationRefreshToken: AuthToken;
   }> {
     await this.validateWorkspaceAndApplication(workspaceId, applicationId);
+    const resource = this.mcpReadClientResourceService.resourceFor({
+      workspaceId,
+      applicationId,
+    });
 
+    return this.issueApplicationTokenPair({
+      workspaceId,
+      applicationId,
+      userWorkspaceId,
+      userId,
+      resource,
+    });
+  }
+
+  private async issueApplicationTokenPair({
+    workspaceId,
+    applicationId,
+    userWorkspaceId,
+    userId,
+    resource,
+  }: {
+    workspaceId: string;
+    applicationId: string;
+    userWorkspaceId?: string;
+    userId?: string;
+    resource?: ApplicationTokenResource;
+  }): Promise<{
+    applicationAccessToken: AuthToken;
+    applicationRefreshToken: AuthToken;
+  }> {
     const accessTokenExpiresIn = this.twentyConfigService.get(
       'APPLICATION_ACCESS_TOKEN_EXPIRES_IN',
     );
@@ -98,6 +138,7 @@ export class ApplicationTokenService {
           userId,
           tokenType: JwtTokenTypeEnum.APPLICATION_ACCESS,
           expiresIn: accessTokenExpiresIn,
+          resource,
         }),
         this.signApplicationToken({
           workspaceId,
@@ -106,6 +147,7 @@ export class ApplicationTokenService {
           userId,
           tokenType: JwtTokenTypeEnum.APPLICATION_REFRESH,
           expiresIn: refreshTokenExpiresIn,
+          resource,
         }),
       ],
     );
@@ -195,15 +237,33 @@ export class ApplicationTokenService {
     applicationId: string;
     userWorkspaceId?: string;
     userId?: string;
+    resource?: ApplicationTokenResource;
   }): Promise<{
     applicationAccessToken: AuthToken;
     applicationRefreshToken: AuthToken;
   }> {
-    return this.generateApplicationTokenPair({
+    await this.validateWorkspaceAndApplication(
+      payload.workspaceId,
+      payload.applicationId,
+    );
+    const currentResource = this.mcpReadClientResourceService.resourceFor({
+      workspaceId: payload.workspaceId,
+      applicationId: payload.applicationId,
+    });
+
+    if (currentResource !== payload.resource) {
+      throw new AuthException(
+        'Application token resource is no longer current',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    return this.issueApplicationTokenPair({
       workspaceId: payload.workspaceId,
       applicationId: payload.applicationId,
       userWorkspaceId: payload.userWorkspaceId,
       userId: payload.userId,
+      resource: currentResource,
     });
   }
 
@@ -237,6 +297,7 @@ export class ApplicationTokenService {
     userId,
     tokenType,
     expiresIn,
+    resource,
   }: {
     workspaceId: string;
     applicationId: string;
@@ -246,6 +307,7 @@ export class ApplicationTokenService {
       | JwtTokenTypeEnum.APPLICATION_ACCESS
       | JwtTokenTypeEnum.APPLICATION_REFRESH;
     expiresIn: string;
+    resource?: ApplicationTokenResource;
   }): Promise<AuthToken> {
     const expiresAt = addMilliseconds(new Date().getTime(), ms(expiresIn));
 
@@ -258,6 +320,7 @@ export class ApplicationTokenService {
       type: tokenType,
       ...(userWorkspaceId ? { userWorkspaceId } : {}),
       ...(userId ? { userId } : {}),
+      ...(resource === MCP_READ_TOKEN_RESOURCE ? { resource } : {}),
     };
 
     return {

@@ -10,6 +10,8 @@ import {
   AuthExceptionCode,
 } from 'src/engine/core-modules/auth/auth.exception';
 import { ApplicationTokenService } from 'src/engine/core-modules/auth/token/services/application-token.service';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
+import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
@@ -21,6 +23,7 @@ describe('ApplicationTokenService', () => {
   let jwtWrapperService: JwtWrapperService;
   let workspaceRepository: Repository<WorkspaceEntity>;
   let applicationRepository: Repository<ApplicationEntity>;
+  let mcpReadClientResourceService: jest.Mocked<McpReadClientResourceService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -49,6 +52,12 @@ describe('ApplicationTokenService', () => {
             get: jest.fn().mockReturnValue('1h'),
           },
         },
+        {
+          provide: McpReadClientResourceService,
+          useValue: {
+            resourceFor: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -60,6 +69,7 @@ describe('ApplicationTokenService', () => {
     workspaceRepository = module.get<Repository<WorkspaceEntity>>(
       getRepositoryToken(WorkspaceEntity),
     );
+    mcpReadClientResourceService = module.get(McpReadClientResourceService);
   });
 
   it('should be defined', () => {
@@ -295,6 +305,38 @@ describe('ApplicationTokenService', () => {
     });
   });
 
+  it('signs the server-derived mcp_read resource on both tokens', async () => {
+    const workspaceId = 'workspace-id';
+    const applicationId = 'application-id';
+
+    jest
+      .spyOn(workspaceRepository, 'findOne')
+      .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+    jest
+      .spyOn(applicationRepository, 'findOne')
+      .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+    mcpReadClientResourceService.resourceFor.mockReturnValue(
+      MCP_READ_TOKEN_RESOURCE,
+    );
+    jest
+      .spyOn(jwtWrapperService, 'signAsyncOrThrow')
+      .mockResolvedValue('token');
+
+    await service.generateApplicationTokenPair({ workspaceId, applicationId });
+
+    expect(jwtWrapperService.signAsyncOrThrow).toHaveBeenCalledTimes(2);
+    expect(jwtWrapperService.signAsyncOrThrow).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ resource: MCP_READ_TOKEN_RESOURCE }),
+      expect.any(Object),
+    );
+    expect(jwtWrapperService.signAsyncOrThrow).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ resource: MCP_READ_TOKEN_RESOURCE }),
+      expect.any(Object),
+    );
+  });
+
   describe('renewApplicationTokens', () => {
     it('should generate a new token pair from validated payload', async () => {
       const workspaceId = 'workspace-id';
@@ -326,6 +368,46 @@ describe('ApplicationTokenService', () => {
         token: mockToken,
         expiresAt: expect.any(Date),
       });
+    });
+
+    it('rejects an old unmarked refresh token after server enrollment', async () => {
+      const workspaceId = 'workspace-id';
+      const applicationId = 'application-id';
+
+      jest
+        .spyOn(workspaceRepository, 'findOne')
+        .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+      jest
+        .spyOn(applicationRepository, 'findOne')
+        .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+      mcpReadClientResourceService.resourceFor.mockReturnValue(
+        MCP_READ_TOKEN_RESOURCE,
+      );
+
+      await expect(
+        service.renewApplicationTokens({ workspaceId, applicationId }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('rejects a marked refresh token after server enrollment is removed', async () => {
+      const workspaceId = 'workspace-id';
+      const applicationId = 'application-id';
+
+      jest
+        .spyOn(workspaceRepository, 'findOne')
+        .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+      jest
+        .spyOn(applicationRepository, 'findOne')
+        .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+      mcpReadClientResourceService.resourceFor.mockReturnValue(undefined);
+
+      await expect(
+        service.renewApplicationTokens({
+          workspaceId,
+          applicationId,
+          resource: MCP_READ_TOKEN_RESOURCE,
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
     });
   });
 });

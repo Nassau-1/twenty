@@ -12,6 +12,7 @@ import {
 import { type AccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/access-token-jwt-payload.type';
 import { type ApiKeyTokenJwtPayload } from 'src/engine/core-modules/auth/types/api-key-token-jwt-payload.type';
 import { ApplicationAccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/application-access-token-jwt-payload.type';
+import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import {
   type AuthContext,
   type AuthContextUser,
@@ -354,7 +355,23 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
       );
     }
 
-    const context: AuthContext = { application, workspace };
+    if (
+      payload.resource !== undefined &&
+      payload.resource !== MCP_READ_TOKEN_RESOURCE
+    ) {
+      throw new AuthException(
+        'Unsupported application token resource',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    const context: AuthContext = {
+      application,
+      workspace,
+      ...(payload.resource
+        ? { applicationTokenResource: payload.resource }
+        : {}),
+    };
 
     if (payload.userId && payload.userWorkspaceId) {
       const userContext = await this.resolveUserContext({

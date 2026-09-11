@@ -7,6 +7,7 @@ import { ApplicationEntity } from 'src/engine/core-modules/application/applicati
 import { JwtAuthStrategy } from 'src/engine/core-modules/auth/strategies/jwt.auth.strategy';
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
 import { ApplicationTokenService } from 'src/engine/core-modules/auth/token/services/application-token.service';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 import { LoginTokenService } from 'src/engine/core-modules/auth/token/services/login-token.service';
 import { RefreshTokenService } from 'src/engine/core-modules/auth/token/services/refresh-token.service';
 import { RenewTokenService } from 'src/engine/core-modules/auth/token/services/renew-token.service';
@@ -45,6 +46,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     RefreshTokenService,
     WorkspaceAgnosticTokenService,
     ApplicationTokenService,
+    McpReadClientResourceService,
     SSOExchangeTokenService,
   ],
   exports: [
@@ -54,6 +56,7 @@ import { WorkspaceCacheModule } from 'src/engine/workspace-cache/workspace-cache
     RefreshTokenService,
     WorkspaceAgnosticTokenService,
     ApplicationTokenService,
+    McpReadClientResourceService,
     SSOExchangeTokenService,
   ],
 })
