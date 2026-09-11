@@ -21,6 +21,12 @@ type McpReadClientResourceConfig = {
   approvedZoReadFunction: ApprovedZoReadFunction;
 };
 
+export class McpReadClientResourceConfigError extends Error {
+  constructor() {
+    super('MCP read client resource configuration is invalid');
+  }
+}
+
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CHECKSUM_PATTERN = /^[0-9a-f]{32}$/i;
@@ -43,7 +49,10 @@ const parseEnrolledApplication = (
     return undefined;
   }
 
-  return { workspaceId: value.workspaceId, applicationId: value.applicationId };
+  return {
+    workspaceId: value.workspaceId.toLowerCase(),
+    applicationId: value.applicationId.toLowerCase(),
+  };
 };
 
 const parseApprovedZoReadFunction = (
@@ -62,9 +71,9 @@ const parseApprovedZoReadFunction = (
   }
 
   return {
-    workspaceId: value.workspaceId,
-    applicationId: value.applicationId,
-    logicFunctionId: value.logicFunctionId,
+    workspaceId: value.workspaceId.toLowerCase(),
+    applicationId: value.applicationId.toLowerCase(),
+    logicFunctionId: value.logicFunctionId.toLowerCase(),
     checksum: value.checksum.toLowerCase(),
   };
 };
@@ -77,7 +86,10 @@ export class McpReadClientResourceService {
     workspaceId,
     applicationId,
   }: EnrolledApplication): ApplicationTokenResource | undefined {
-    return this.isEnrolledApplication({ workspaceId, applicationId })
+    return this.isEnrolledApplication({
+      workspaceId: workspaceId.toLowerCase(),
+      applicationId: applicationId.toLowerCase(),
+    })
       ? MCP_READ_TOKEN_RESOURCE
       : undefined;
   }
@@ -91,8 +103,8 @@ export class McpReadClientResourceService {
     return (
       config?.enrolledApplications.some(
         (entry) =>
-          entry.workspaceId === workspaceId &&
-          entry.applicationId === applicationId,
+          entry.workspaceId === workspaceId.toLowerCase() &&
+          entry.applicationId === applicationId.toLowerCase(),
       ) ?? false
     );
   }
@@ -102,7 +114,9 @@ export class McpReadClientResourceService {
   ): ApprovedZoReadFunction | undefined {
     const binding = this.readConfig()?.approvedZoReadFunction;
 
-    return binding?.workspaceId === workspaceId ? binding : undefined;
+    return binding?.workspaceId === workspaceId.toLowerCase()
+      ? binding
+      : undefined;
   }
 
   private readConfig(): McpReadClientResourceConfig | undefined {
@@ -120,7 +134,7 @@ export class McpReadClientResourceService {
         Object.keys(parsed).length !== 2 ||
         !Array.isArray(parsed.enrolledApplications)
       ) {
-        return undefined;
+        throw new McpReadClientResourceConfigError();
       }
 
       const enrolledApplications = parsed.enrolledApplications.map(
@@ -135,7 +149,7 @@ export class McpReadClientResourceService {
         enrolledApplications.some((entry) => entry === undefined) ||
         !approvedZoReadFunction
       ) {
-        return undefined;
+        throw new McpReadClientResourceConfigError();
       }
 
       const uniqueEnrollments = new Set(
@@ -145,15 +159,29 @@ export class McpReadClientResourceService {
       );
 
       if (uniqueEnrollments.size !== enrolledApplications.length) {
-        return undefined;
+        throw new McpReadClientResourceConfigError();
+      }
+
+      if (
+        enrolledApplications.some(
+          (entry) =>
+            entry.workspaceId === approvedZoReadFunction.workspaceId &&
+            entry.applicationId === approvedZoReadFunction.applicationId,
+        )
+      ) {
+        throw new McpReadClientResourceConfigError();
       }
 
       return {
         enrolledApplications: enrolledApplications as EnrolledApplication[],
         approvedZoReadFunction,
       };
-    } catch {
-      return undefined;
+    } catch (error) {
+      if (error instanceof McpReadClientResourceConfigError) {
+        throw error;
+      }
+
+      throw new McpReadClientResourceConfigError();
     }
   }
 }
