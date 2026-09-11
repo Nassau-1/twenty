@@ -370,7 +370,7 @@ describe('AccessTokenService', () => {
       },
     );
 
-    it.each(['/mcp/search', '/mcp//search', '/mcp/other/'])(
+    it.each(['/mcp//', '/mcp/search', '/mcp//search', '/mcp/other/'])(
       'rejects a marked MCP read token outside the routed MCP path: %s',
       async (path) => {
         const mockAuthContext = {
