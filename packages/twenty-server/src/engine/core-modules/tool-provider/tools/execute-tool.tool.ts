@@ -3,6 +3,7 @@ import { type JSONSchema7 } from 'json-schema';
 import { z } from 'zod';
 
 import { type ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { type ToolDescriptorPolicy } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
 import { type ToolContext } from 'src/engine/core-modules/tool-provider/types/tool-context.type';
 import { type ToolOutput } from 'src/engine/core-modules/tool/types/tool-output.type';
 
@@ -47,6 +48,7 @@ export const createExecuteToolTool = (
   context: ToolContext,
   options?: {
     isToolAllowed?: (toolName: string) => boolean;
+    isDescriptorAllowed?: ToolDescriptorPolicy;
     compactOutput?: boolean;
     spillLargeOutput?: boolean;
   },
@@ -68,6 +70,7 @@ export const createExecuteToolTool = (
     return toolRegistry.resolveAndExecute(toolName, args, context, {
       compactOutput: options?.compactOutput,
       spillLargeOutput: options?.spillLargeOutput,
+      isDescriptorAllowed: options?.isDescriptorAllowed,
     });
   },
 });

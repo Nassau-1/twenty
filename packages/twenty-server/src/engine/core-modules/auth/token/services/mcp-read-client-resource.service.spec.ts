@@ -43,7 +43,10 @@ describe('McpReadClientResourceService', () => {
     config.get.mockReturnValue(
       JSON.stringify({
         enrolledApplications: [
-          { workspaceId: workspaceId.toUpperCase(), applicationId: applicationId.toUpperCase() },
+          {
+            workspaceId: workspaceId.toUpperCase(),
+            applicationId: applicationId.toUpperCase(),
+          },
         ],
         approvedZoReadFunction: {
           workspaceId: workspaceId.toUpperCase(),

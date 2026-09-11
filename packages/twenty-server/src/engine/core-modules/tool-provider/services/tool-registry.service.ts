@@ -20,6 +20,11 @@ import { ToolOutputSpillService } from 'src/engine/core-modules/tool/services/to
 import { type ToolOutput } from 'src/engine/core-modules/tool/types/tool-output.type';
 import { type RolePermissionConfig } from 'src/engine/twenty-orm/types/role-permission-config';
 
+export type ToolDescriptorPolicy = (
+  entry: ToolIndexEntry,
+  context: ToolProviderContext,
+) => boolean | Promise<boolean>;
+
 @Injectable()
 export class ToolRegistryService {
   private readonly logger = new Logger(ToolRegistryService.name);
@@ -31,7 +36,10 @@ export class ToolRegistryService {
     private readonly toolOutputSpillService: ToolOutputSpillService,
   ) {}
 
-  async getCatalog(context: ToolProviderContext): Promise<ToolIndexEntry[]> {
+  async getCatalog(
+    context: ToolProviderContext,
+    options?: { isDescriptorAllowed?: ToolDescriptorPolicy },
+  ): Promise<ToolIndexEntry[]> {
     const results = await Promise.all(
       this.providers.map(async (provider) => {
         if (await provider.isAvailable(context)) {
@@ -44,7 +52,17 @@ export class ToolRegistryService {
       }),
     );
 
-    return results.flat();
+    const catalog = results.flat();
+
+    if (!options?.isDescriptorAllowed) {
+      return catalog;
+    }
+
+    const allowed = await Promise.all(
+      catalog.map((entry) => options.isDescriptorAllowed!(entry, context)),
+    );
+
+    return catalog.filter((_, index) => allowed[index]);
   }
 
   async resolveSchemas({
@@ -159,6 +177,7 @@ export class ToolRegistryService {
       userId?: string;
       userWorkspaceId?: string;
       locale?: keyof typeof APP_LOCALES;
+      isDescriptorAllowed?: ToolDescriptorPolicy;
     },
   ): Promise<ToolIndexEntry[]> {
     const context = this.buildContextFromToolContext({
@@ -169,7 +188,9 @@ export class ToolRegistryService {
       locale: options?.locale,
     });
 
-    return this.getCatalog(context);
+    return this.getCatalog(context, {
+      isDescriptorAllowed: options?.isDescriptorAllowed,
+    });
   }
 
   async getToolsByName(
@@ -209,6 +230,7 @@ export class ToolRegistryService {
     names: string[],
     context: ToolContext,
     aspects: LearnToolsAspect[] = ['description', 'schema'],
+    options?: { isDescriptorAllowed?: ToolDescriptorPolicy },
   ): Promise<
     Array<{
       name: string;
@@ -218,7 +240,9 @@ export class ToolRegistryService {
   > {
     const fullContext = this.buildContextFromToolContext(context);
 
-    const catalog = await this.getCatalog(fullContext);
+    const catalog = await this.getCatalog(fullContext, {
+      isDescriptorAllowed: options?.isDescriptorAllowed,
+    });
     const nameSet = new Set(names);
     const matchingEntries = catalog.filter((entry) => nameSet.has(entry.name));
 
@@ -254,10 +278,13 @@ export class ToolRegistryService {
   async suggestSimilarToolNames(
     toolNames: string[],
     context: ToolContext,
+    options?: { isDescriptorAllowed?: ToolDescriptorPolicy },
   ): Promise<Record<string, string[]>> {
     const fullContext = this.buildContextFromToolContext(context);
 
-    const catalog = await this.getCatalog(fullContext);
+    const catalog = await this.getCatalog(fullContext, {
+      isDescriptorAllowed: options?.isDescriptorAllowed,
+    });
     const candidateToolNames = catalog.map((entry) => entry.name);
 
     const suggestionsByToolName: Record<string, string[]> = {};
@@ -280,7 +307,11 @@ export class ToolRegistryService {
     toolName: string,
     args: Record<string, unknown> | undefined,
     context: ToolContext,
-    options?: { compactOutput?: boolean; spillLargeOutput?: boolean },
+    options?: {
+      compactOutput?: boolean;
+      spillLargeOutput?: boolean;
+      isDescriptorAllowed?: ToolDescriptorPolicy;
+    },
   ): Promise<ToolOutput> {
     try {
       const fullContext = this.buildContextFromToolContext(context);
@@ -302,6 +333,17 @@ export class ToolRegistryService {
           success: false,
           message: `Tool "${toolName}" not found`,
           error: `Tool "${toolName}" not found.${suggestionHint} Use learn_tools to discover available tools.`,
+        };
+      }
+
+      if (
+        options?.isDescriptorAllowed &&
+        !(await options.isDescriptorAllowed(entry, fullContext))
+      ) {
+        return {
+          success: false,
+          message: `Tool "${toolName}" is not available`,
+          error: `Tool "${toolName}" is not available in this context. Use get_tool_catalog to discover available tools.`,
         };
       }
 

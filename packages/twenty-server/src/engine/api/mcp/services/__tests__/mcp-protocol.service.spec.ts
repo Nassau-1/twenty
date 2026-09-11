@@ -1,3 +1,8 @@
+jest.mock(
+  'src/engine/core-modules/tool-provider/services/tool-registry.service',
+  () => ({ ToolRegistryService: class ToolRegistryService {} }),
+);
+
 import { HttpException, HttpStatus } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { FieldActorSource } from 'twenty-shared/types';
@@ -18,9 +23,11 @@ import { type McpToolAnnotations } from 'src/engine/api/mcp/types/mcp-tool-annot
 import { type FlatApiKey } from 'src/engine/core-modules/api-key/types/flat-api-key.type';
 import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
 import { EXECUTE_TOOL_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/execute-tool.tool';
+import { GET_TOOL_CATALOG_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/get-tool-catalog.tool';
 import { LEARN_TOOLS_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/learn-tools.tool';
 import { LOAD_SKILL_TOOL_NAME } from 'src/engine/core-modules/tool-provider/tools/load-skill.tool';
 import { ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { McpReadToolPolicyService } from 'src/engine/core-modules/tool-provider/services/mcp-read-tool-policy.service';
 import { type FlatWorkspace } from 'src/engine/core-modules/workspace/types/flat-workspace.type';
 import { WorkspaceManyOrAllFlatEntityMapsCacheService } from 'src/engine/metadata-modules/flat-entity/services/workspace-many-or-all-flat-entity-maps-cache.service';
 import { SkillService } from 'src/engine/metadata-modules/skill/skill.service';
@@ -33,6 +40,7 @@ describe('McpProtocolService', () => {
   let userRoleService: jest.Mocked<UserRoleService>;
   let mcpToolExecutorService: jest.Mocked<McpToolExecutorService>;
   let apiKeyRoleService: jest.Mocked<ApiKeyRoleService>;
+  let mcpReadToolPolicyService: jest.Mocked<McpReadToolPolicyService>;
 
   const mockWorkspace = { id: 'workspace-1' } as FlatWorkspace;
   const mockUserWorkspaceId = 'user-workspace-1';
@@ -135,6 +143,13 @@ describe('McpProtocolService', () => {
             }),
           },
         },
+        {
+          provide: McpReadToolPolicyService,
+          useValue: {
+            isMcpReadClient: jest.fn().mockReturnValue(false),
+            isDescriptorAllowed: jest.fn().mockResolvedValue(true),
+          },
+        },
       ],
     }).compile();
 
@@ -143,6 +158,7 @@ describe('McpProtocolService', () => {
     userRoleService = module.get(UserRoleService);
     mcpToolExecutorService = module.get(McpToolExecutorService);
     apiKeyRoleService = module.get(ApiKeyRoleService);
+    mcpReadToolPolicyService = module.get(McpReadToolPolicyService);
   });
 
   it('should be defined', () => {
@@ -376,6 +392,47 @@ describe('McpProtocolService', () => {
           }),
         }),
       );
+    });
+
+    it('removes preloaded tools and injects descriptor policy for an enrolled MCP read client', async () => {
+      userRoleService.getRoleIdForUserWorkspace.mockResolvedValue(mockRoleId);
+      mcpReadToolPolicyService.isMcpReadClient.mockReturnValue(true);
+      mcpToolExecutorService.handleToolsListing.mockReturnValue({
+        id: '123',
+        jsonrpc: '2.0',
+        result: { tools: [] },
+      });
+
+      await service.handleMCPCoreQuery(
+        { jsonrpc: '2.0', method: 'tools/list', id: '123' },
+        {
+          workspace: mockWorkspace,
+          userWorkspaceId: mockUserWorkspaceId,
+          apiKey: undefined,
+          application: { id: 'application-id' } as never,
+        },
+      );
+
+      expect(_toolRegistryService.getToolsByName).not.toHaveBeenCalled();
+      expect(mcpToolExecutorService.handleToolsListing).toHaveBeenCalledWith(
+        '123',
+        expect.objectContaining({
+          [GET_TOOL_CATALOG_TOOL_NAME]: expect.any(Object),
+          [EXECUTE_TOOL_TOOL_NAME]: expect.any(Object),
+          [LEARN_TOOLS_TOOL_NAME]: expect.any(Object),
+        }),
+      );
+      const toolSet =
+        mcpToolExecutorService.handleToolsListing.mock.calls[0][1];
+
+      expect(Object.keys(toolSet)).toEqual(
+        expect.arrayContaining([
+          GET_TOOL_CATALOG_TOOL_NAME,
+          EXECUTE_TOOL_TOOL_NAME,
+          LEARN_TOOLS_TOOL_NAME,
+        ]),
+      );
+      expect(Object.keys(toolSet)).toHaveLength(3);
     });
 
     it('should return prompts list without role resolution', async () => {

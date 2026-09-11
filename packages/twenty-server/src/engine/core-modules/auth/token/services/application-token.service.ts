@@ -14,6 +14,7 @@ import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-t
 import { type AuthToken } from 'src/engine/core-modules/auth/dto/auth-token.dto';
 import { WorkspaceNotFoundDefaultError } from 'src/engine/core-modules/workspace/workspace.exception';
 import { ApplicationEntity } from 'src/engine/core-modules/application/application.entity';
+import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import {
   ApplicationException,
   ApplicationExceptionCode,
@@ -41,6 +42,8 @@ export class ApplicationTokenService {
     private readonly workspaceRepository: Repository<WorkspaceEntity>,
     @InjectRepository(ApplicationEntity)
     private readonly applicationRepository: Repository<ApplicationEntity>,
+    @InjectRepository(UserWorkspaceEntity)
+    private readonly userWorkspaceRepository: Repository<UserWorkspaceEntity>,
     private readonly twentyConfigService: TwentyConfigService,
     private readonly mcpReadClientResourceService: McpReadClientResourceService,
   ) {}
@@ -60,6 +63,12 @@ export class ApplicationTokenService {
     const resource = this.mcpReadClientResourceService.resourceFor({
       workspaceId,
       applicationId,
+    });
+    await this.assertMcpReadUserBinding({
+      resource,
+      workspaceId,
+      userId,
+      userWorkspaceId,
     });
 
     const expiresIn = this.twentyConfigService.get(
@@ -95,6 +104,12 @@ export class ApplicationTokenService {
     const resource = this.mcpReadClientResourceService.resourceFor({
       workspaceId,
       applicationId,
+    });
+    await this.assertMcpReadUserBinding({
+      resource,
+      workspaceId,
+      userId,
+      userWorkspaceId,
     });
 
     return this.issueApplicationTokenPair({
@@ -258,6 +273,13 @@ export class ApplicationTokenService {
       );
     }
 
+    await this.assertMcpReadUserBinding({
+      resource: currentResource,
+      workspaceId: payload.workspaceId,
+      userId: payload.userId,
+      userWorkspaceId: payload.userWorkspaceId,
+    });
+
     return this.issueApplicationTokenPair({
       workspaceId: payload.workspaceId,
       applicationId: payload.applicationId,
@@ -288,6 +310,40 @@ export class ApplicationTokenService {
         ApplicationExceptionCode.APPLICATION_NOT_FOUND,
       ),
     );
+  }
+
+  private async assertMcpReadUserBinding({
+    resource,
+    workspaceId,
+    userId,
+    userWorkspaceId,
+  }: {
+    resource?: ApplicationTokenResource;
+    workspaceId: string;
+    userId?: string;
+    userWorkspaceId?: string;
+  }): Promise<void> {
+    if (resource !== MCP_READ_TOKEN_RESOURCE) {
+      return;
+    }
+
+    if (!userId || !userWorkspaceId) {
+      throw new AuthException(
+        'MCP read application tokens require a user workspace binding',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    const userWorkspace = await this.userWorkspaceRepository.findOne({
+      where: { id: userWorkspaceId, userId, workspaceId },
+    });
+
+    if (!userWorkspace) {
+      throw new AuthException(
+        'MCP read application token user workspace binding is invalid',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
   }
 
   private async signApplicationToken({

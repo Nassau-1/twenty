@@ -15,8 +15,10 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { type AuthToken } from 'src/engine/core-modules/auth/dto/auth-token.dto';
 import { JwtAuthStrategy } from 'src/engine/core-modules/auth/strategies/jwt.auth.strategy';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 import { type AuthContext } from 'src/engine/core-modules/auth/types/auth-context.type';
 import { type AccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/access-token-jwt-payload.type';
+import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { type PlaygroundTokenJwtPayload } from 'src/engine/core-modules/auth/types/playground-token-jwt-payload.type';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
@@ -44,6 +46,7 @@ export class AccessTokenService {
     private readonly globalWorkspaceOrmManager: GlobalWorkspaceOrmManager,
     @InjectRepository(UserWorkspaceEntity)
     private readonly userWorkspaceRepository: Repository<UserWorkspaceEntity>,
+    private readonly mcpReadClientResourceService: McpReadClientResourceService,
   ) {}
 
   private async resolveTokenSubject(
@@ -201,6 +204,39 @@ export class AccessTokenService {
       );
     }
 
-    return this.validateToken(token);
+    const authContext = await this.validateToken(token);
+
+    this.assertApplicationResourceRequest(authContext, request);
+
+    return authContext;
+  }
+
+  private assertApplicationResourceRequest(
+    authContext: AuthContext,
+    request: Request,
+  ): void {
+    if (!authContext.application || !authContext.workspace) {
+      return;
+    }
+
+    const isEnrolled = this.mcpReadClientResourceService.isEnrolledApplication({
+      workspaceId: authContext.workspace.id,
+      applicationId: authContext.application.id,
+    });
+    const isMarked =
+      authContext.applicationTokenResource === MCP_READ_TOKEN_RESOURCE;
+    const isMcpReadRequest =
+      request.method === 'POST' && request.path === '/mcp';
+
+    if (
+      (isEnrolled && !isMarked) ||
+      (isMarked && !isEnrolled) ||
+      (isMarked && !isMcpReadRequest)
+    ) {
+      throw new AuthException(
+        'Application token resource is not valid for this request',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
   }
 }

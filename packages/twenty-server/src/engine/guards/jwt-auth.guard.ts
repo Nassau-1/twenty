@@ -8,8 +8,6 @@ import {
 import { isDefined } from 'twenty-shared/utils';
 
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
-import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
-import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { bindDataToRequestObject } from 'src/engine/utils/bind-data-to-request-object.util';
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
 
@@ -20,7 +18,6 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly accessTokenService: AccessTokenService,
     private readonly workspaceStorageCacheService: WorkspaceCacheStorageService,
-    private readonly mcpReadClientResourceService: McpReadClientResourceService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,24 +42,6 @@ export class JwtAuthGuard implements CanActivate {
         );
 
         return false;
-      }
-
-      if (data.application && data.workspace) {
-        const isEnrolled =
-          this.mcpReadClientResourceService.isEnrolledApplication({
-            workspaceId: data.workspace.id,
-            applicationId: data.application.id,
-          });
-        const isMarked =
-          data.applicationTokenResource === MCP_READ_TOKEN_RESOURCE;
-
-        if (
-          (isEnrolled && !isMarked) ||
-          (isMarked && !isEnrolled) ||
-          (isMarked && (request.method !== 'POST' || request.path !== '/mcp'))
-        ) {
-          return false;
-        }
       }
 
       bindDataToRequestObject(data, request, metadataVersion);

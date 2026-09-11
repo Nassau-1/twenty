@@ -28,10 +28,12 @@ import { type McpToolAnnotations } from 'src/engine/api/mcp/types/mcp-tool-annot
 import { wrapJsonRpcResponse } from 'src/engine/api/mcp/utils/wrap-jsonrpc-response.util';
 import { ApiKeyRoleService } from 'src/engine/core-modules/api-key/services/api-key-role.service';
 import { type FlatApiKey } from 'src/engine/core-modules/api-key/types/flat-api-key.type';
+import { type FlatApplication } from 'src/engine/core-modules/application/types/flat-application.type';
 import { type WorkspaceAuthContext } from 'src/engine/core-modules/auth/types/workspace-auth-context.type';
 import { buildApiKeyAuthContext } from 'src/engine/core-modules/auth/utils/build-api-key-auth-context.util';
 import { COMMON_PRELOAD_TOOLS } from 'src/engine/core-modules/tool-provider/constants/common-preload-tools.const';
 import { ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { McpReadToolPolicyService } from 'src/engine/core-modules/tool-provider/services/mcp-read-tool-policy.service';
 import {
   createLearnToolsTool,
   LEARN_TOOLS_TOOL_NAME,
@@ -96,6 +98,7 @@ export class McpProtocolService {
     private readonly mcpInstructionBuilderService: McpInstructionBuilderService,
     private readonly flatEntityMapsCacheService: WorkspaceManyOrAllFlatEntityMapsCacheService,
     private readonly workspaceCacheService: WorkspaceCacheService,
+    private readonly mcpReadToolPolicyService: McpReadToolPolicyService,
   ) {}
 
   async handleInitialize(requestId: string | number, workspaceId: string) {
@@ -199,6 +202,7 @@ export class McpProtocolService {
       userId?: string;
       userWorkspaceId?: string;
       apiKey?: FlatApiKey;
+      application?: FlatApplication;
     },
   ): Promise<ToolSet> {
     const actorContext = await this.buildActorContext(
@@ -216,10 +220,22 @@ export class McpProtocolService {
       actorContext,
     };
 
-    const preloadedTools = await this.toolRegistry.getToolsByName(
-      COMMON_PRELOAD_TOOLS,
-      toolContext,
+    const isMcpReadClient = this.mcpReadToolPolicyService.isMcpReadClient(
+      workspace.id,
+      options?.application,
     );
+    const isDescriptorAllowed = isMcpReadClient
+      ? (
+          entry: Parameters<McpReadToolPolicyService['isDescriptorAllowed']>[0],
+        ) =>
+          this.mcpReadToolPolicyService.isDescriptorAllowed(entry, toolContext)
+      : undefined;
+    const preloadedTools = isMcpReadClient
+      ? {}
+      : await this.toolRegistry.getToolsByName(
+          COMMON_PRELOAD_TOOLS,
+          toolContext,
+        );
 
     return {
       ...annotatePreloadedMcpTools(preloadedTools),
@@ -228,6 +244,7 @@ export class McpProtocolService {
           userId: options?.userId,
           userWorkspaceId: options?.userWorkspaceId,
           excludeTools: MCP_EXCLUDED_TOOL_NAMES,
+          isDescriptorAllowed,
         }),
         inputSchema: zodSchema(getToolCatalogInputSchema),
         annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
@@ -235,41 +252,45 @@ export class McpProtocolService {
       [EXECUTE_TOOL_TOOL_NAME]: {
         ...createExecuteToolTool(this.toolRegistry, toolContext, {
           isToolAllowed: (toolName) => !MCP_EXCLUDED_TOOL_NAMES.has(toolName),
+          isDescriptorAllowed,
         }),
         inputSchema: executeToolInputSchema,
         annotations: MCP_EXECUTE_TOOL_ANNOTATIONS,
       } as McpAnnotatedTool,
-      [LOAD_SKILL_TOOL_NAME]: {
-        ...createLoadSkillTool(
-          (names) =>
-            this.skillService.findFlatSkillsByNames(names, workspace.id),
-          async () => {
-            const allSkills = await this.skillService.findAllFlatSkills(
-              workspace.id,
-            );
+      ...(!isMcpReadClient && {
+        [LOAD_SKILL_TOOL_NAME]: {
+          ...createLoadSkillTool(
+            (names) =>
+              this.skillService.findFlatSkillsByNames(names, workspace.id),
+            async () => {
+              const allSkills = await this.skillService.findAllFlatSkills(
+                workspace.id,
+              );
 
-            return allSkills.map((skill) => skill.name);
-          },
-        ),
-        inputSchema: zodSchema(loadSkillInputSchema),
-        annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
-      } as McpAnnotatedTool,
-      [LIST_OBJECT_METADATA_NAMES_TOOL_NAME]: {
-        ...createListObjectMetadataNamesTool(
-          this.flatEntityMapsCacheService,
-          workspace.id,
-        ),
-        inputSchema: zodSchema(listObjectMetadataNamesInputSchema),
-        annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
-      } as McpAnnotatedTool,
-      [LIST_SKILLS_TOOL_NAME]: {
-        ...createListSkillsTool(this.skillService, workspace.id),
-        inputSchema: zodSchema(listSkillsInputSchema),
-        annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
-      } as McpAnnotatedTool,
+              return allSkills.map((skill) => skill.name);
+            },
+          ),
+          inputSchema: zodSchema(loadSkillInputSchema),
+          annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
+        } as McpAnnotatedTool,
+        [LIST_OBJECT_METADATA_NAMES_TOOL_NAME]: {
+          ...createListObjectMetadataNamesTool(
+            this.flatEntityMapsCacheService,
+            workspace.id,
+          ),
+          inputSchema: zodSchema(listObjectMetadataNamesInputSchema),
+          annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
+        } as McpAnnotatedTool,
+        [LIST_SKILLS_TOOL_NAME]: {
+          ...createListSkillsTool(this.skillService, workspace.id),
+          inputSchema: zodSchema(listSkillsInputSchema),
+          annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
+        } as McpAnnotatedTool,
+      }),
       [LEARN_TOOLS_TOOL_NAME]: {
         ...createLearnToolsTool(this.toolRegistry, toolContext, {
           isToolAllowed: (toolName) => !MCP_EXCLUDED_TOOL_NAMES.has(toolName),
+          isDescriptorAllowed,
         }),
         inputSchema: zodSchema(learnToolsInputSchema),
         annotations: MCP_CLOSED_WORLD_READ_ONLY_TOOL_ANNOTATIONS,
@@ -285,11 +306,13 @@ export class McpProtocolService {
       userId,
       userWorkspaceId,
       apiKey,
+      application,
     }: {
       workspace: FlatWorkspace;
       userId?: string;
       userWorkspaceId?: string;
       apiKey: FlatApiKey | undefined;
+      application?: FlatApplication;
     },
     sseWriter?: (data: Record<string, unknown>) => void,
   ): Promise<Record<string, unknown> | null> {
@@ -343,6 +366,7 @@ export class McpProtocolService {
         userId,
         userWorkspaceId,
         apiKey,
+        application,
       });
 
       if (method === 'tools/call') {

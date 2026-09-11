@@ -13,6 +13,8 @@ import { ViewToolProvider } from 'src/engine/core-modules/tool-provider/provider
 import { WebhookToolProvider } from 'src/engine/core-modules/tool-provider/providers/webhook-tool.provider';
 import { WorkflowToolProvider } from 'src/engine/core-modules/tool-provider/providers/workflow-tool.provider';
 import { ToolExecutorService } from 'src/engine/core-modules/tool-provider/services/tool-executor.service';
+import { McpReadToolPolicyService } from 'src/engine/core-modules/tool-provider/services/mcp-read-tool-policy.service';
+import { TokenModule } from 'src/engine/core-modules/auth/token/token.module';
 import { ToolModule } from 'src/engine/core-modules/tool/tool.module';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { AiAgentExecutionModule } from 'src/engine/metadata-modules/ai/ai-agent-execution/ai-agent-execution.module';
@@ -47,6 +49,7 @@ import { ToolRegistryService } from './services/tool-registry.service';
 @Module({
   imports: [
     ToolModule,
+    TokenModule,
     RecordCrudModule,
     AiModelsModule,
     forwardRef(() => AiAgentExecutionModule),
@@ -68,6 +71,7 @@ import { ToolRegistryService } from './services/tool-registry.service';
   providers: [
     ToolIndexResolver,
     ToolExecutorService,
+    McpReadToolPolicyService,
     ActionToolProvider,
     DashboardToolProvider,
     DatabaseToolProvider,
@@ -118,6 +122,6 @@ import { ToolRegistryService } from './services/tool-registry.service';
     },
     ToolRegistryService,
   ],
-  exports: [ToolRegistryService],
+  exports: [ToolRegistryService, McpReadToolPolicyService],
 })
 export class ToolProviderModule {}

@@ -2,6 +2,7 @@ import { isDefined } from 'twenty-shared/utils';
 import { z } from 'zod';
 
 import { type ToolRegistryService } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
+import { type ToolDescriptorPolicy } from 'src/engine/core-modules/tool-provider/services/tool-registry.service';
 import { type ToolContext } from 'src/engine/core-modules/tool-provider/types/tool-context.type';
 import { type ToolOutput } from 'src/engine/core-modules/tool/types/tool-output.type';
 
@@ -45,6 +46,7 @@ export type LearnToolsResult = {
 
 export type LearnToolsOptions = {
   isToolAllowed?: (toolName: string) => boolean;
+  isDescriptorAllowed?: ToolDescriptorPolicy;
   spillLargeOutput?: boolean;
 };
 
@@ -59,7 +61,7 @@ export const createLearnToolsTool = (
   execute: async (parameters: LearnToolsInput): Promise<LearnToolsResult> => {
     const { toolNames, aspects } = parameters;
 
-    const { isToolAllowed } = options ?? {};
+    const { isToolAllowed, isDescriptorAllowed } = options ?? {};
     const allowedNames = isToolAllowed
       ? toolNames.filter((name) => isToolAllowed(name))
       : toolNames;
@@ -68,6 +70,7 @@ export const createLearnToolsTool = (
       allowedNames,
       context,
       aspects,
+      { isDescriptorAllowed },
     );
 
     const foundNames = new Set(toolInfos.map((toolInfo) => toolInfo.name));
@@ -77,7 +80,9 @@ export const createLearnToolsTool = (
 
     const suggestions: Record<string, string[]> =
       notFound.length > 0
-        ? await toolRegistry.suggestSimilarToolNames(notFound, context)
+        ? await toolRegistry.suggestSimilarToolNames(notFound, context, {
+            isDescriptorAllowed,
+          })
         : {};
 
     const messageParts: string[] = [];

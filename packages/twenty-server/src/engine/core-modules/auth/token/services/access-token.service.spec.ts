@@ -8,11 +8,16 @@ import { WorkspaceActivationStatus } from 'twenty-shared/workspace';
 import { Repository } from 'typeorm';
 
 import { AppTokenEntity } from 'src/engine/core-modules/app-token/app-token.entity';
-import { AuthException } from 'src/engine/core-modules/auth/auth.exception';
+import {
+  AuthException,
+  AuthExceptionCode,
+} from 'src/engine/core-modules/auth/auth.exception';
 import { JwtAuthStrategy } from 'src/engine/core-modules/auth/strategies/jwt.auth.strategy';
 import { EmailService } from 'src/engine/core-modules/email/email.service';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
+import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
+import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { AuthProviderEnum } from 'src/engine/core-modules/workspace/types/workspace.type';
@@ -29,6 +34,7 @@ describe('AccessTokenService', () => {
   let workspaceRepository: Repository<WorkspaceEntity>;
   let globalWorkspaceOrmManager: GlobalWorkspaceOrmManager;
   let userWorkspaceRepository: Repository<UserWorkspaceEntity>;
+  let mcpReadClientResourceService: jest.Mocked<McpReadClientResourceService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -85,6 +91,12 @@ describe('AccessTokenService', () => {
               .mockImplementation((fn: () => any, _authContext?: any) => fn()),
           },
         },
+        {
+          provide: McpReadClientResourceService,
+          useValue: {
+            isEnrolledApplication: jest.fn().mockReturnValue(false),
+          },
+        },
       ],
     }).compile();
 
@@ -103,6 +115,7 @@ describe('AccessTokenService', () => {
     userWorkspaceRepository = module.get<Repository<UserWorkspaceEntity>>(
       getRepositoryToken(UserWorkspaceEntity),
     );
+    mcpReadClientResourceService = module.get(McpReadClientResourceService);
   });
 
   it('should be defined', () => {
@@ -293,5 +306,107 @@ describe('AccessTokenService', () => {
         AuthException,
       );
     });
+
+    it.each([
+      ['GraphQL hydration', 'POST', '/graphql'],
+      ['OpenAPI and route validation', 'GET', '/rest/companies'],
+    ])(
+      'rejects a marked MCP read application token during %s',
+      async (_caller, method, path) => {
+        const mockToken = 'marked-token';
+        const mockAuthContext = {
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+        };
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest
+          .spyOn(service['jwtStrategy'], 'validate')
+          .mockResolvedValue(mockAuthContext as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          true,
+        );
+
+        await expect(
+          service.validateTokenByRequest({ method, path } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it('permits a marked MCP read application token only on POST /mcp', async () => {
+      const mockToken = 'marked-token';
+      const mockAuthContext = {
+        workspace: { id: 'workspace-id' },
+        application: { id: 'application-id' },
+        applicationTokenResource: MCP_READ_TOKEN_RESOURCE,
+      };
+
+      jest
+        .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+        .mockReturnValue(() => mockToken);
+      jest
+        .spyOn(jwtWrapperService, 'verifyJwtToken')
+        .mockResolvedValue(undefined);
+      jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+      jest
+        .spyOn(service['jwtStrategy'], 'validate')
+        .mockResolvedValue(mockAuthContext as never);
+      mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(true);
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/mcp',
+        } as Request),
+      ).resolves.toEqual(mockAuthContext);
+    });
+
+    it.each([
+      [
+        'an old unmarked token for a newly enrolled application',
+        undefined,
+        true,
+      ],
+      [
+        'a marked token after enrollment removal',
+        MCP_READ_TOKEN_RESOURCE,
+        false,
+      ],
+    ])(
+      'rejects %s through shared request validation',
+      async (_description, applicationTokenResource, isEnrolled) => {
+        const mockToken = 'application-token';
+
+        jest
+          .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+          .mockReturnValue(() => mockToken);
+        jest
+          .spyOn(jwtWrapperService, 'verifyJwtToken')
+          .mockResolvedValue(undefined);
+        jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+        jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+          workspace: { id: 'workspace-id' },
+          application: { id: 'application-id' },
+          ...(applicationTokenResource ? { applicationTokenResource } : {}),
+        } as never);
+        mcpReadClientResourceService.isEnrolledApplication.mockReturnValue(
+          isEnrolled,
+        );
+
+        await expect(
+          service.validateTokenByRequest({
+            method: 'POST',
+            path: '/mcp',
+          } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
   });
 });

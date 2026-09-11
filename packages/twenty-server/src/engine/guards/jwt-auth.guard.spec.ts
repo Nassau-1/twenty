@@ -1,6 +1,5 @@
 import { JwtAuthGuard } from 'src/engine/guards/jwt-auth.guard';
 import { AccessTokenService } from 'src/engine/core-modules/auth/token/services/access-token.service';
-import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { WorkspaceCacheStorageService } from 'src/engine/workspace-cache-storage/workspace-cache-storage.service';
 
@@ -14,13 +13,9 @@ describe('JwtAuthGuard mcp_read application resource', () => {
   const workspaceCacheStorageService = {
     getMetadataVersion: jest.fn(),
   } as unknown as jest.Mocked<WorkspaceCacheStorageService>;
-  const resourceService = {
-    isEnrolledApplication: jest.fn(),
-  } as unknown as jest.Mocked<McpReadClientResourceService>;
   const guard = new JwtAuthGuard(
     accessTokenService,
     workspaceCacheStorageService,
-    resourceService,
   );
 
   const request = (method: string, path: string) => ({
@@ -36,7 +31,6 @@ describe('JwtAuthGuard mcp_read application resource', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     workspaceCacheStorageService.getMetadataVersion.mockResolvedValue(1);
-    resourceService.isEnrolledApplication.mockReturnValue(true);
     accessTokenService.validateTokenByRequest.mockResolvedValue({
       workspace: { id: workspaceId },
       application: { id: applicationId },
@@ -50,34 +44,11 @@ describe('JwtAuthGuard mcp_read application resource', () => {
     ).resolves.toBe(true);
   });
 
-  it.each([
-    ['GET', '/mcp'],
-    ['POST', '/rest/companies'],
-  ])(
-    'rejects the marked bearer outside exact POST /mcp',
-    async (method, path) => {
-      await expect(
-        guard.canActivate(executionContext(request(method, path))),
-      ).resolves.toBe(false);
-    },
-  );
-
-  it('rejects an old unmarked bearer once its application is enrolled', async () => {
-    accessTokenService.validateTokenByRequest.mockResolvedValue({
-      workspace: { id: workspaceId },
-      application: { id: applicationId },
-    });
+  it('relies on shared request validation for rejected resource requests', async () => {
+    accessTokenService.validateTokenByRequest.mockRejectedValue(new Error());
 
     await expect(
-      guard.canActivate(executionContext(request('POST', '/mcp'))),
-    ).resolves.toBe(false);
-  });
-
-  it('rejects a marked bearer after enrollment is removed', async () => {
-    resourceService.isEnrolledApplication.mockReturnValue(false);
-
-    await expect(
-      guard.canActivate(executionContext(request('POST', '/mcp'))),
+      guard.canActivate(executionContext(request('GET', '/mcp'))),
     ).resolves.toBe(false);
   });
 

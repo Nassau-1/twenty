@@ -1,3 +1,8 @@
+jest.mock(
+  'src/engine/core-modules/application/application-install/application-install.service',
+  () => ({ ApplicationInstallService: class ApplicationInstallService {} }),
+);
+
 import { OAuthService } from 'src/engine/core-modules/application/application-oauth/oauth.service';
 import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 
@@ -18,7 +23,9 @@ describe('OAuthService mcp_read client credentials grant', () => {
       } as never,
       {} as never,
       {} as never,
-      {} as never,
+      {
+        verifyClientSecret: jest.fn().mockResolvedValue(true),
+      } as never,
       {} as never,
       {} as never,
       {} as never,
