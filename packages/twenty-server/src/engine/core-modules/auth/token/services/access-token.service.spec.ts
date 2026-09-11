@@ -17,7 +17,10 @@ import { EmailService } from 'src/engine/core-modules/email/email.service';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
-import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { UserWorkspaceEntity } from 'src/engine/core-modules/user-workspace/user-workspace.entity';
 import { UserEntity } from 'src/engine/core-modules/user/user.entity';
 import { AuthProviderEnum } from 'src/engine/core-modules/workspace/types/workspace.type';
@@ -25,6 +28,40 @@ import { WorkspaceEntity } from 'src/engine/core-modules/workspace/workspace.ent
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 
 import { AccessTokenService } from './access-token.service';
+
+const askZoCurrentPrincipalQuery = `
+query AskZoCurrentPrincipal {
+  currentUser {
+    id
+    currentWorkspace { id defaultRole { id universalIdentifier } }
+    currentUserWorkspace {
+      id
+      objectsPermissions {
+        objectMetadataId
+        canReadObjectRecords
+        canUpdateObjectRecords
+        restrictedFields
+        rowLevelPermissionPredicates { id }
+        rowLevelPermissionPredicateGroups { id }
+      }
+    }
+    workspaceMember {
+      id
+      userWorkspaceId
+      roles {
+        id
+        universalIdentifier
+        label
+        canUpdateAllSettings
+        canAccessAllTools
+        canReadAllObjectRecords
+      }
+    }
+  }
+  minimalMetadata {
+    objectMetadataItems { id nameSingular namePlural isActive isSystem }
+  }
+}`;
 
 describe('AccessTokenService', () => {
   let service: AccessTokenService;
@@ -95,6 +132,7 @@ describe('AccessTokenService', () => {
           provide: McpReadClientResourceService,
           useValue: {
             isEnrolledApplication: jest.fn().mockReturnValue(false),
+            isApprovedZoReadApplication: jest.fn().mockReturnValue(false),
           },
         },
       ],
@@ -439,5 +477,97 @@ describe('AccessTokenService', () => {
         ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
       },
     );
+
+    const setZoDocumentSearchContext = () => {
+      jest
+        .spyOn(jwtWrapperService, 'extractJwtFromRequest')
+        .mockReturnValue(() => 'zo-document-search-token');
+      jest
+        .spyOn(jwtWrapperService, 'verifyJwtToken')
+        .mockResolvedValue(undefined);
+      jest.spyOn(jwtWrapperService, 'decode').mockReturnValue({} as never);
+      jest.spyOn(service['jwtStrategy'], 'validate').mockResolvedValue({
+        workspace: { id: 'workspace-id' },
+        application: { id: 'zo-application-id' },
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      } as never);
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        true,
+      );
+    };
+
+    it('permits the one exact metadata principal query for a scoped ZO token', async () => {
+      setZoDocumentSearchContext();
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).resolves.toMatchObject({
+        applicationTokenResource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      });
+    });
+
+    it.each([
+      ['the MCP route', 'POST', '/mcp', askZoCurrentPrincipalQuery, {}],
+      ['a non-POST metadata request', 'GET', '/metadata', askZoCurrentPrincipalQuery, {}],
+      [
+        'a query with an extra field',
+        'POST',
+        '/metadata',
+        askZoCurrentPrincipalQuery.replace('currentUser {', 'currentUser { id'),
+        {},
+      ],
+      [
+        'an aliased query',
+        'POST',
+        '/metadata',
+        askZoCurrentPrincipalQuery.replace('currentUser {', 'principal: currentUser {'),
+        {},
+      ],
+      ['non-empty variables', 'POST', '/metadata', askZoCurrentPrincipalQuery, { value: 'x' }],
+    ])(
+      'rejects a scoped ZO token for %s',
+      async (_description, method, path, query, variables) => {
+        setZoDocumentSearchContext();
+
+        await expect(
+          service.validateTokenByRequest({
+            method,
+            path,
+            body: {
+              operationName: 'AskZoCurrentPrincipal',
+              query,
+              variables,
+            },
+          } as Request),
+        ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      },
+    );
+
+    it('rejects a scoped ZO token after its execution-app binding is removed', async () => {
+      setZoDocumentSearchContext();
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        false,
+      );
+
+      await expect(
+        service.validateTokenByRequest({
+          method: 'POST',
+          path: '/metadata',
+          body: {
+            operationName: 'AskZoCurrentPrincipal',
+            query: askZoCurrentPrincipalQuery,
+            variables: {},
+          },
+        } as Request),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
   });
 });

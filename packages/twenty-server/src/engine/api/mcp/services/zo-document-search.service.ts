@@ -278,7 +278,7 @@ export class ZoDocumentSearchService {
 
     try {
       const { token } =
-        await this.applicationTokenService.generateApplicationAccessToken({
+        await this.applicationTokenService.generateZoDocumentSearchApplicationAccessToken({
           workspaceId,
           applicationId: approved.applicationId,
           userId,

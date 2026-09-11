@@ -11,7 +11,10 @@ import {
 } from 'src/engine/core-modules/auth/auth.exception';
 import { ApplicationTokenService } from 'src/engine/core-modules/auth/token/services/application-token.service';
 import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
-import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
@@ -62,6 +65,7 @@ describe('ApplicationTokenService', () => {
           provide: McpReadClientResourceService,
           useValue: {
             resourceFor: jest.fn(),
+            isApprovedZoReadApplication: jest.fn(),
           },
         },
       ],
@@ -161,6 +165,86 @@ describe('ApplicationTokenService', () => {
         }),
         expect.any(Object),
       );
+    });
+  });
+
+  describe('generateZoDocumentSearchApplicationAccessToken', () => {
+    const workspaceId = 'workspace-id';
+    const applicationId = 'application-id';
+    const userId = 'user-id';
+    const userWorkspaceId = 'user-workspace-id';
+
+    beforeEach(() => {
+      jest
+        .spyOn(workspaceRepository, 'findOne')
+        .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+      jest
+        .spyOn(applicationRepository, 'findOne')
+        .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+      jest.spyOn(userWorkspaceRepository, 'findOne').mockResolvedValue({
+        id: userWorkspaceId,
+        userId,
+        workspaceId,
+      } as UserWorkspaceEntity);
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        true,
+      );
+      jest
+        .spyOn(jwtWrapperService, 'signAsyncOrThrow')
+        .mockResolvedValue('token');
+    });
+
+    it('mints a user-bound access token only for the configured execution app', async () => {
+      await service.generateZoDocumentSearchApplicationAccessToken({
+        workspaceId,
+        applicationId,
+        userId,
+        userWorkspaceId,
+      });
+
+      expect(
+        mcpReadClientResourceService.isApprovedZoReadApplication,
+      ).toHaveBeenCalledWith({ workspaceId, applicationId });
+      expect(jwtWrapperService.signAsyncOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({
+          applicationId,
+          userId,
+          userWorkspaceId,
+          resource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+          type: JwtTokenTypeEnum.APPLICATION_ACCESS,
+        }),
+        expect.any(Object),
+      );
+    });
+
+    it('rejects a non-configured execution app before signing', async () => {
+      mcpReadClientResourceService.isApprovedZoReadApplication.mockReturnValue(
+        false,
+      );
+
+      await expect(
+        service.generateZoDocumentSearchApplicationAccessToken({
+          workspaceId,
+          applicationId,
+          userId,
+          userWorkspaceId,
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      expect(jwtWrapperService.signAsyncOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid current user workspace binding before signing', async () => {
+      jest.spyOn(userWorkspaceRepository, 'findOne').mockResolvedValue(null);
+
+      await expect(
+        service.generateZoDocumentSearchApplicationAccessToken({
+          workspaceId,
+          applicationId,
+          userId,
+          userWorkspaceId,
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+      expect(jwtWrapperService.signAsyncOrThrow).not.toHaveBeenCalled();
     });
   });
 
@@ -480,6 +564,29 @@ describe('ApplicationTokenService', () => {
           workspaceId,
           applicationId,
           resource: MCP_READ_TOKEN_RESOURCE,
+        }),
+      ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
+    });
+
+    it('rejects renewal of a ZO document search token', async () => {
+      const workspaceId = 'workspace-id';
+      const applicationId = 'application-id';
+
+      jest
+        .spyOn(workspaceRepository, 'findOne')
+        .mockResolvedValue({ id: workspaceId } as WorkspaceEntity);
+      jest
+        .spyOn(applicationRepository, 'findOne')
+        .mockResolvedValue({ id: applicationId } as ApplicationEntity);
+      mcpReadClientResourceService.resourceFor.mockReturnValue(undefined);
+
+      await expect(
+        service.renewApplicationTokens({
+          workspaceId,
+          applicationId,
+          resource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+          userId: 'user-id',
+          userWorkspaceId: 'user-workspace-id',
         }),
       ).rejects.toMatchObject({ code: AuthExceptionCode.UNAUTHENTICATED });
     });

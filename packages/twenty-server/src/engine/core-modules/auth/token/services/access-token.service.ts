@@ -4,6 +4,12 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { msg } from '@lingui/core/macro';
 import { addMilliseconds } from 'date-fns';
 import { type Request } from 'express';
+import {
+  Kind,
+  parse,
+  type FieldNode,
+  type SelectionSetNode,
+} from 'graphql';
 import ms from 'ms';
 import { assertIsDefinedOrThrow } from 'twenty-shared/utils';
 import { isWorkspaceProvisioned } from 'twenty-shared/workspace';
@@ -18,7 +24,10 @@ import { JwtAuthStrategy } from 'src/engine/core-modules/auth/strategies/jwt.aut
 import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
 import { type AuthContext } from 'src/engine/core-modules/auth/types/auth-context.type';
 import { type AccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/access-token-jwt-payload.type';
-import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { JwtTokenTypeEnum } from 'src/engine/core-modules/auth/types/jwt-token-type.enum';
 import { type PlaygroundTokenJwtPayload } from 'src/engine/core-modules/auth/types/playground-token-jwt-payload.type';
 import { JwtWrapperService } from 'src/engine/core-modules/jwt/services/jwt-wrapper.service';
@@ -32,6 +41,165 @@ import { WorkspaceNotFoundDefaultError } from 'src/engine/core-modules/workspace
 import { GlobalWorkspaceOrmManager } from 'src/engine/twenty-orm/global-workspace-datasource/global-workspace-orm.manager';
 import { buildSystemAuthContext } from 'src/engine/twenty-orm/utils/build-system-auth-context.util';
 import { WorkspaceMemberWorkspaceEntity } from 'src/modules/workspace-member/standard-objects/workspace-member.workspace-entity';
+
+type ExpectedSelection = {
+  name: string;
+  selection?: readonly ExpectedSelection[];
+};
+
+const ASK_ZO_CURRENT_PRINCIPAL_SELECTION: readonly ExpectedSelection[] = [
+  {
+    name: 'currentUser',
+    selection: [
+      { name: 'id' },
+      {
+        name: 'currentWorkspace',
+        selection: [
+          { name: 'id' },
+          {
+            name: 'defaultRole',
+            selection: [{ name: 'id' }, { name: 'universalIdentifier' }],
+          },
+        ],
+      },
+      {
+        name: 'currentUserWorkspace',
+        selection: [
+          { name: 'id' },
+          {
+            name: 'objectsPermissions',
+            selection: [
+              { name: 'objectMetadataId' },
+              { name: 'canReadObjectRecords' },
+              { name: 'canUpdateObjectRecords' },
+              { name: 'restrictedFields' },
+              {
+                name: 'rowLevelPermissionPredicates',
+                selection: [{ name: 'id' }],
+              },
+              {
+                name: 'rowLevelPermissionPredicateGroups',
+                selection: [{ name: 'id' }],
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: 'workspaceMember',
+        selection: [
+          { name: 'id' },
+          { name: 'userWorkspaceId' },
+          {
+            name: 'roles',
+            selection: [
+              { name: 'id' },
+              { name: 'universalIdentifier' },
+              { name: 'label' },
+              { name: 'canUpdateAllSettings' },
+              { name: 'canAccessAllTools' },
+              { name: 'canReadAllObjectRecords' },
+            ],
+          },
+        ],
+      },
+    ],
+  },
+  {
+    name: 'minimalMetadata',
+    selection: [
+      {
+        name: 'objectMetadataItems',
+        selection: [
+          { name: 'id' },
+          { name: 'nameSingular' },
+          { name: 'namePlural' },
+          { name: 'isActive' },
+          { name: 'isSystem' },
+        ],
+      },
+    ],
+  },
+];
+
+const isExactObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value) &&
+  (Object.getPrototypeOf(value) === Object.prototype ||
+    Object.getPrototypeOf(value) === null);
+
+const hasExactKeys = (
+  value: Record<string, unknown>,
+  expected: readonly string[],
+): boolean =>
+  Object.keys(value).length === expected.length &&
+  expected.every((key) => Object.hasOwn(value, key));
+
+const matchesSelection = (
+  selectionSet: SelectionSetNode,
+  expected: readonly ExpectedSelection[],
+): boolean =>
+  selectionSet.selections.length === expected.length &&
+  selectionSet.selections.every((selection, index) => {
+    if (selection.kind !== Kind.FIELD) {
+      return false;
+    }
+
+    const field = selection as FieldNode;
+    const expectedField = expected[index];
+    if (
+      field.name.value !== expectedField.name ||
+      field.alias ||
+      field.arguments.length !== 0 ||
+      field.directives.length !== 0
+    ) {
+      return false;
+    }
+
+    return expectedField.selection
+      ? field.selectionSet !== undefined &&
+          matchesSelection(field.selectionSet, expectedField.selection)
+      : field.selectionSet === undefined;
+  });
+
+const isAskZoCurrentPrincipalRequest = (request: Request): boolean => {
+  if (request.method !== 'POST' || request.path !== '/metadata') {
+    return false;
+  }
+
+  const body: unknown = request.body;
+  if (
+    !isExactObject(body) ||
+    !hasExactKeys(body, ['operationName', 'query', 'variables']) ||
+    body.operationName !== 'AskZoCurrentPrincipal' ||
+    typeof body.query !== 'string' ||
+    body.query.length > 16_384 ||
+    !isExactObject(body.variables) ||
+    Object.keys(body.variables).length !== 0
+  ) {
+    return false;
+  }
+
+  try {
+    const document = parse(body.query, { noLocation: true });
+    if (document.definitions.length !== 1) {
+      return false;
+    }
+    const [operation] = document.definitions;
+
+    return (
+      operation.kind === Kind.OPERATION_DEFINITION &&
+      operation.operation === 'query' &&
+      operation.name?.value === 'AskZoCurrentPrincipal' &&
+      operation.variableDefinitions.length === 0 &&
+      operation.directives.length === 0 &&
+      matchesSelection(operation.selectionSet, ASK_ZO_CURRENT_PRINCIPAL_SELECTION)
+    );
+  } catch {
+    return false;
+  }
+};
 
 @Injectable()
 export class AccessTokenService {
@@ -225,13 +393,24 @@ export class AccessTokenService {
     });
     const isMarked =
       authContext.applicationTokenResource === MCP_READ_TOKEN_RESOURCE;
+    const isZoDocumentSearch =
+      authContext.applicationTokenResource ===
+      ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE;
     const isMcpReadRequest =
       request.method === 'POST' && /^\/mcp\/?$/i.test(request.path);
+    const isApprovedZoReadApplication =
+      isZoDocumentSearch &&
+      this.mcpReadClientResourceService.isApprovedZoReadApplication({
+        workspaceId: authContext.workspace.id,
+        applicationId: authContext.application.id,
+      });
 
     if (
       (isEnrolled && !isMarked) ||
       (isMarked && !isEnrolled) ||
-      (isMarked && !isMcpReadRequest)
+      (isMarked && !isMcpReadRequest) ||
+      (isZoDocumentSearch && !isApprovedZoReadApplication) ||
+      (isZoDocumentSearch && !isAskZoCurrentPrincipalRequest(request))
     ) {
       throw new AuthException(
         'Application token resource is not valid for this request',

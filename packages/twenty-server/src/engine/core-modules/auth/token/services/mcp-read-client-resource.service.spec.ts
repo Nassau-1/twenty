@@ -110,6 +110,15 @@ describe('McpReadClientResourceService', () => {
     expect(
       service.approvedZoReadApplication('44444444-4444-4444-8444-444444444444'),
     ).toBeUndefined();
+    expect(
+      service.isApprovedZoReadApplication({
+        workspaceId,
+        applicationId: zoApplicationId,
+      }),
+    ).toBe(true);
+    expect(
+      service.isApprovedZoReadApplication({ workspaceId, applicationId }),
+    ).toBe(false);
   });
 
   it('fails closed when the restricted external app is also the Zo execution app', () => {

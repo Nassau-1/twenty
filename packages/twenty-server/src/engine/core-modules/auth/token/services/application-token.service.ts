@@ -26,6 +26,7 @@ import {
 import { TwentyConfigService } from 'src/engine/core-modules/twenty-config/twenty-config.service';
 import {
   MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
   type ApplicationTokenResource,
 } from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import { McpReadClientResourceService } from 'src/engine/core-modules/auth/token/services/mcp-read-client-resource.service';
@@ -83,6 +84,53 @@ export class ApplicationTokenService {
       tokenType: JwtTokenTypeEnum.APPLICATION_ACCESS,
       expiresIn,
       resource,
+    });
+  }
+
+  async generateZoDocumentSearchApplicationAccessToken({
+    workspaceId,
+    applicationId,
+    userWorkspaceId,
+    userId,
+  }: {
+    workspaceId: string;
+    applicationId: string;
+    userWorkspaceId: string;
+    userId: string;
+  }): Promise<AuthToken> {
+    await this.validateWorkspaceAndApplication(workspaceId, applicationId);
+
+    if (
+      !this.mcpReadClientResourceService.isApprovedZoReadApplication({
+        workspaceId,
+        applicationId,
+      })
+    ) {
+      throw new AuthException(
+        'ZO document search application is not approved',
+        AuthExceptionCode.UNAUTHENTICATED,
+      );
+    }
+
+    await this.assertMcpReadUserBinding({
+      resource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+      workspaceId,
+      userId,
+      userWorkspaceId,
+    });
+
+    const expiresIn = this.twentyConfigService.get(
+      'APPLICATION_ACCESS_TOKEN_EXPIRES_IN',
+    );
+
+    return this.signApplicationToken({
+      workspaceId,
+      applicationId,
+      userWorkspaceId,
+      userId,
+      tokenType: JwtTokenTypeEnum.APPLICATION_ACCESS,
+      expiresIn,
+      resource: ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
     });
   }
 
@@ -323,7 +371,10 @@ export class ApplicationTokenService {
     userId?: string;
     userWorkspaceId?: string;
   }): Promise<void> {
-    if (resource !== MCP_READ_TOKEN_RESOURCE) {
+    if (
+      resource !== MCP_READ_TOKEN_RESOURCE &&
+      resource !== ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE
+    ) {
       return;
     }
 
@@ -376,7 +427,7 @@ export class ApplicationTokenService {
       type: tokenType,
       ...(userWorkspaceId ? { userWorkspaceId } : {}),
       ...(userId ? { userId } : {}),
-      ...(resource === MCP_READ_TOKEN_RESOURCE ? { resource } : {}),
+      ...(resource ? { resource } : {}),
     };
 
     return {

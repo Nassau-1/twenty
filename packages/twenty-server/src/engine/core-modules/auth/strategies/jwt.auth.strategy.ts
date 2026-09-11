@@ -12,7 +12,10 @@ import {
 import { type AccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/access-token-jwt-payload.type';
 import { type ApiKeyTokenJwtPayload } from 'src/engine/core-modules/auth/types/api-key-token-jwt-payload.type';
 import { ApplicationAccessTokenJwtPayload } from 'src/engine/core-modules/auth/types/application-access-token-jwt-payload.type';
-import { MCP_READ_TOKEN_RESOURCE } from 'src/engine/core-modules/auth/types/application-token-resource.type';
+import {
+  MCP_READ_TOKEN_RESOURCE,
+  ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE,
+} from 'src/engine/core-modules/auth/types/application-token-resource.type';
 import {
   type AuthContext,
   type AuthContextUser,
@@ -357,7 +360,8 @@ export class JwtAuthStrategy extends PassportStrategy(Strategy, 'jwt') {
 
     if (
       payload.resource !== undefined &&
-      payload.resource !== MCP_READ_TOKEN_RESOURCE
+      payload.resource !== MCP_READ_TOKEN_RESOURCE &&
+      payload.resource !== ZO_DOCUMENT_SEARCH_TOKEN_RESOURCE
     ) {
       throw new AuthException(
         'Unsupported application token resource',

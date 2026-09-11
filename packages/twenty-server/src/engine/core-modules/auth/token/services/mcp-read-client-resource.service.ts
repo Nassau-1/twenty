@@ -108,6 +108,15 @@ export class McpReadClientResourceService {
       : undefined;
   }
 
+  isApprovedZoReadApplication({
+    workspaceId,
+    applicationId,
+  }: EnrolledApplication): boolean {
+    const approved = this.approvedZoReadApplication(workspaceId);
+
+    return approved?.applicationId === applicationId.toLowerCase();
+  }
+
   private readConfig(): McpReadClientResourceConfig | undefined {
     const raw = this.twentyConfigService.get('MCP_READ_CLIENT_RESOURCE_CONFIG');
 

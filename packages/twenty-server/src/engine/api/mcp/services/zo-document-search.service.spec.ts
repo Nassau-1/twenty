@@ -12,7 +12,7 @@ const userWorkspaceId = 'user-workspace-id';
 
 describe('ZoDocumentSearchService', () => {
   const applicationTokenService = {
-    generateApplicationAccessToken: jest.fn(),
+    generateZoDocumentSearchApplicationAccessToken: jest.fn(),
   } as unknown as jest.Mocked<ApplicationTokenService>;
   const resourceService = {
     approvedZoReadApplication: jest.fn(),
@@ -29,7 +29,7 @@ describe('ZoDocumentSearchService', () => {
       workspaceId,
       applicationId: zoApplicationId,
     });
-    applicationTokenService.generateApplicationAccessToken.mockResolvedValue({
+    applicationTokenService.generateZoDocumentSearchApplicationAccessToken.mockResolvedValue({
       token: 'server-only-execution-token',
       expiresAt: new Date(),
     });
@@ -57,7 +57,7 @@ describe('ZoDocumentSearchService', () => {
     });
 
     expect(
-      applicationTokenService.generateApplicationAccessToken,
+      applicationTokenService.generateZoDocumentSearchApplicationAccessToken,
     ).toHaveBeenCalledWith({
       workspaceId,
       applicationId: zoApplicationId,
@@ -90,7 +90,7 @@ describe('ZoDocumentSearchService', () => {
     ).rejects.toThrow('DOCUMENT_SEARCH_UNAVAILABLE');
 
     expect(
-      applicationTokenService.generateApplicationAccessToken,
+      applicationTokenService.generateZoDocumentSearchApplicationAccessToken,
     ).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -104,7 +104,7 @@ describe('ZoDocumentSearchService', () => {
     ).rejects.toThrow('DOCUMENT_SEARCH_UNAVAILABLE');
 
     expect(
-      applicationTokenService.generateApplicationAccessToken,
+      applicationTokenService.generateZoDocumentSearchApplicationAccessToken,
     ).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
