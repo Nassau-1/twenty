@@ -91,14 +91,16 @@ describe('MessagingRelaunchFailedMessageChannelJob', () => {
       {
         id: data.messageChannelId,
         workspaceId: data.workspaceId,
-        syncStage: MessageChannelSyncStage.MESSAGE_LIST_FETCH_PENDING,
+        isSyncEnabled: true,
+        syncStage: MessageChannelSyncStage.FAILED,
+        syncStatus: MessageChannelSyncStatus.FAILED_UNKNOWN,
       },
       { syncStatus: MessageChannelSyncStatus.ONGOING },
     );
     expect(
       statusService.resetAndMarkAsMessagesListFetchPending.mock
         .invocationCallOrder[0],
-    ).toBeLessThan(repository.update.mock.invocationCallOrder[0]);
+    ).toBeGreaterThan(repository.update.mock.invocationCallOrder[0]);
   });
 
   it.each([
@@ -132,6 +134,22 @@ describe('MessagingRelaunchFailedMessageChannelJob', () => {
       new Error('reset failed'),
     );
     await expect(job.handle(data)).rejects.toThrow('reset failed');
-    expect(repository.update).not.toHaveBeenCalled();
+    expect(repository.update).toHaveBeenLastCalledWith(
+      {
+        id: data.messageChannelId,
+        workspaceId: data.workspaceId,
+        syncStage: MessageChannelSyncStage.FAILED,
+        syncStatus: MessageChannelSyncStatus.ONGOING,
+      },
+      { syncStatus: MessageChannelSyncStatus.FAILED_UNKNOWN },
+    );
+  });
+
+  it('does not reset cursors after losing the conditional recovery claim', async () => {
+    repository.update.mockResolvedValue({ affected: 0 });
+    await job.handle(data);
+    expect(
+      statusService.resetAndMarkAsMessagesListFetchPending,
+    ).not.toHaveBeenCalled();
   });
 });

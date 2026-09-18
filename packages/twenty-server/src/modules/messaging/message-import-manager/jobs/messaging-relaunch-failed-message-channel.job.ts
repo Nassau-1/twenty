@@ -90,21 +90,41 @@ export class MessagingRelaunchFailedMessageChannelJob {
 
         // Folder cursors advance during listing, before message persistence. A
         // failed import must replay them, not report success on an empty delta.
-        await this.messageChannelSyncStatusService.resetAndMarkAsMessagesListFetchPending(
-          [messageChannelId],
-          workspaceId,
-        );
-
-        await this.messageChannelRepository.update(
+        const claimed = await this.messageChannelRepository.update(
           {
             id: messageChannelId,
             workspaceId,
-            syncStage: MessageChannelSyncStage.MESSAGE_LIST_FETCH_PENDING,
+            isSyncEnabled: true,
+            syncStage: MessageChannelSyncStage.FAILED,
+            syncStatus: MessageChannelSyncStatus.FAILED_UNKNOWN,
           },
           {
             syncStatus: MessageChannelSyncStatus.ONGOING,
           },
         );
+
+        if (claimed.affected !== 1) {
+          return;
+        }
+
+        try {
+          await this.messageChannelSyncStatusService.resetAndMarkAsMessagesListFetchPending(
+            [messageChannelId],
+            workspaceId,
+          );
+        } catch (error) {
+          await this.messageChannelRepository.update(
+            {
+              id: messageChannelId,
+              workspaceId,
+              syncStage: MessageChannelSyncStage.FAILED,
+              syncStatus: MessageChannelSyncStatus.ONGOING,
+            },
+            { syncStatus: MessageChannelSyncStatus.FAILED_UNKNOWN },
+          );
+
+          throw error;
+        }
       },
       authContext,
       { lite: true },
